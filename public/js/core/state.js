@@ -1,4 +1,4 @@
-import { GAME, BUILDINGS, COMPONENTS, ROLES, FIRST_NAMES, LAST_NAMES, STATION_STAGES } from '../config.js';
+import { GAME, BUILDINGS, COMPONENTS, ROLES, FIRST_NAMES, LAST_NAMES, MACHINES, STATION_STAGES, ZONES } from '../config.js';
 
 export function nextId(s) { return s.nextId++; }
 
@@ -14,13 +14,14 @@ export function rng(s) {
 export function makeBuilding(s, type, x, y) {
   const d = BUILDINGS[type];
   const b = { id: nextId(s), type, x, y, w: d.w, h: d.h };
-  if (STATION_STAGES[type]) {
+  if (STATION_STAGES[type] || MACHINES[type]) {
     Object.assign(b, {
       status: 'no_operator', progress: 0, busy: false, inbox: 0, outbox: 0, buffer: {},
       wear: 0, hours: 0, broken: false, repairT: 0, externalRepair: false, history: [],
       t: { run: 0, starved: 0, blocked: 0, broken: 0, absent: 0 }, done: 0, good: 0, bad: 0, rr: 0, operatorId: null, supplyBy: null, techBy: null,
     });
   }
+  if (MACHINES[type]) { b.out = 0; if (MACHINES[type].heat) b.temp = 25; }
   if (type === 'pallet') { b.count = 0; b.claim = null; }
   return b;
 }
@@ -37,25 +38,26 @@ export function makeWorker(s, role, x, y) {
 
 export function newGame(seed = Date.now() | 0) {
   const s = {
-    v: 1, seed, nextId: 1, time: 0, day: 1, hourClock: 0, speed: 1,
+    v: 3, seed, zones: JSON.parse(JSON.stringify(ZONES)), nextId: 1, time: 0, day: 1, hourClock: 0, speed: 1,
     cash: GAME.startCash, hall: { ...GAME.hall }, gridVer: 1,
     buildings: [], belts: {}, workers: [], stock: {}, finished: 0,
-    deliveries: [], shipments: [], offers: [], orders: [], nextOfferIn: 6,
+    deliveries: [], shipments: [], trucks: [], offers: [], orders: [], nextOfferIn: 6,
     spot: { factor: 1 }, autoBuy: false, autoShip: true, autoBuyTarget: 25,
     reputation: 50, loan: 0, research: { done: {}, active: null },
     stats: { produced: 0, sold: 0, scrapped: 0, reworked: 0, revenue: 0, expense: 0 },
     today: blankDay(), hourNow: blankHour(), hours: [], days: [], ledger: {}, objectives: {}, kwh: 0, kw: 0,
     eff: { oee: 0, avail: 0, perf: 0, qual: 1 }, rateHour: 0, warnStock: 0,
   };
-  Object.keys(COMPONENTS).forEach((k) => { s.stock[k] = k === 'parafusos' ? 120 : 30; });
+  Object.keys(COMPONENTS).forEach((k) => { s.stock[k] = COMPONENTS[k].raw || COMPONENTS[k].made ? 0 : k === 'parafusos' ? 120 : 30; });
 
   const put = (type, x, y) => { const b = makeBuilding(s, type, x, y); s.buildings.push(b); return b; };
-  put('depot', 1, 9);
-  put('st1', 2, 4); put('st2', 7, 4); put('st3', 12, 4);
-  put('pallet', 16, 4);
-  put('rest', 9, 10);
-  put('dock', 15, 10);
-  for (const x of [4, 5, 6, 9, 10, 11, 14, 15]) s.belts[`${x},5`] = { id: nextId(s), x, y: 5, dir: 'E', kind: 'belt', items: [] };
+  const O = 18; // a fábrica inicial fica nas fileiras da frente; atrás dela há terrenos para o complexo
+  put('st1', 2, O + 2); put('st2', 7, O + 2); put('st3', 12, O + 2);
+  put('pallet', 16, O + 2);
+  put('rest', 19, O + 1);
+  put('depot', 1, O + 10); put('bayIn', 6, O + 11);
+  put('dock', 21, O + 11); put('bayOut', 18, O + 11);
+  for (const x of [4, 5, 6, 9, 10, 11, 14, 15]) s.belts[`${x},${O + 3}`] = { id: nextId(s), x, y: O + 3, dir: 'E', kind: 'belt', items: [] };
 
   // Abastece as estações com material para iniciar produzindo logo no começo.
   for (const b of s.buildings) {
@@ -63,8 +65,8 @@ export function newGame(seed = Date.now() | 0) {
     if (def) for (const k in def.mats) { b.buffer[k] = def.mats[k] * 2; s.stock[k] -= def.mats[k] * 2; }
   }
 
-  s.workers.push(makeWorker(s, 'assembler', 3, 7), makeWorker(s, 'assembler', 8, 7), makeWorker(s, 'assembler', 13, 7),
-    makeWorker(s, 'stock', 5, 8), makeWorker(s, 'fork', 16, 8));
+  s.workers.push(makeWorker(s, 'assembler', 3, O + 4), makeWorker(s, 'assembler', 8, O + 4), makeWorker(s, 'assembler', 13, O + 4),
+    makeWorker(s, 'stock', 5, O + 8), makeWorker(s, 'fork', 17, O + 8));
   return s;
 }
 

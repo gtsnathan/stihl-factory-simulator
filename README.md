@@ -1,4 +1,4 @@
-# STIHL Factory Simulator (v0.1)
+# STIHL Factory Simulator (v0.2)
 
 Simulação isométrica de fábrica de motosserras feita com HTML5, CSS3, JavaScript e Phaser 3.
 
@@ -33,13 +33,15 @@ Envie esta pasta para um repositório no GitHub e conecte-o a um Worker. O `wran
 ```
 public/js/
   config.js            valores do jogo: modelos, componentes, prédios, cargos, pesquisas
-  core/                sim.js (passo fixo e comandos), state.js, grid.js (A*), save.js
+  core/                sim.js (passo fixo e comandos), state.js, grid.js (A* e paredes), save.js, migrate.js
   systems/
     production.js      qualidade, refugo, retrabalho, OEE e gargalo
     machines.js        estações, ciclo, desgaste, falhas e reparo
     workers.js         funções, fadiga, pathfinding, contratação e treinamento
     inventory.js       depósito, compras e entregas
     logistics.js       esteiras, divisores e movimentação de peças
+    sectors.js         prédios do complexo, receitas, departamentos e chamados
+    trucks.js          caminhões e docas
     economy.js         pedidos, vendas, empréstimos, folha, energia e fluxo de caixa
   render/              pixel.js e textures.js (arte gerada por código), scene.js (Phaser)
   ui/                  ui.js (painéis e indicadores), charts.js
@@ -54,11 +56,13 @@ A simulação não depende do Phaser: ela roda em passos fixos de 1/30 s e guard
 - **Novo modelo:** os outros cinco já estão em `MODELS`, bloqueados. O próximo passo é ligar cada item em produção a um modelo.
 - **Novo funcionário:** acrescente em `ROLES` e crie o comportamento em `systems/workers.js`.
 
-## Estado da versão 0.1
+## Estado da versão 0.2
 
-Pronto: galpão ampliável, depósito, três estações, esteiras e divisores, cinco funcionários com pathfinding e fadiga, MS 170, compras, pedidos, mercado, manutenção, pesquisa, OEE, gráficos, empréstimos e salvamento automático.
+Pronto: três prédios separados e ampliáveis (Produção, Almoxarifado e Logística), docas onde os caminhões entram e formam fila, depósito, três estações, esteiras e divisores, cinco funcionários com pathfinding e fadiga, MS 170, compras, pedidos, mercado, manutenção, pesquisa, OEE, gráficos, empréstimos e salvamento automático.
 
-Próximas versões: outros modelos, fabricação de componentes, turnos, robôs, CNC, sensores, fases 2 a 5 com desbloqueios, Inspetor, Engenheiro e Supervisor.
+Também pronto: complexo com terrenos numerados, oito setores de fabricação com receitas, doze departamentos com efeito na fábrica e chamados técnicos.
+
+Próximas versões: outros modelos com lista própria de componentes, turnos, sensores, fases 2 a 5 com desbloqueios, Inspetor, Engenheiro e Supervisor.
 
 ## Licenças
 

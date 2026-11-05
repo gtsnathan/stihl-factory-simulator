@@ -59,6 +59,136 @@ function station3(p, f) { // cabine de inspeção com lâmpada e seladora de cai
   p.box(1.25, 1.75, 1.38, 1.82, 4, 16, shade(CARD, .9));
 }
 
+
+// ---------- Sprites dos setores ----------
+const STEEL2 = 0x707a86, DKP = 0x20262c;
+const panel = (p, a0, a1, b, z0, z1, f) => { p.faceB(b, a0, a1, z0, z1, DKP); p.faceB(b, a0 + .05, a0 + (a1 - a0) * .45, z0 + 3, z1 - 3, f % 2 ? 0x5dd67a : 0x2d7a45); };
+const ART = {
+  forno(p, f) { // forno com boca incandescente
+    basePlate(p, 2, 2);
+    p.box(.25, 1.75, .25, 1.7, 4, 44, 0x4d4640);
+    p.box(.35, 1.65, .35, 1.6, 44, 50, 0x2e2a27);
+    const hot = [0xff8a2a, 0xffb347, 0xff6a1a, 0xffa030][f];
+    p.faceB(1.7, .6, 1.4, 12, 34, 0x1a1512); p.faceB(1.7, .7, 1.3, 15, 31, hot); p.faceA(1.75, .6, 1.4, 14, 30, shade(hot, .7));
+    p.box(.6, .9, .6, .9, 50, 68, 0x3a3f45, { edge: false });
+    p.top(.66, .84, .66, .84, 68, 0x20262c);
+  },
+  diecast(p, f) { // injetora de metal: duas placas que abrem e fecham
+    basePlate(p, 2, 2);
+    p.box(.2, 1.8, .55, 1.45, 4, 18, 0x3f6f96);
+    const g = [.12, .05, 0, .05][f];
+    p.box(.3, .7 - g, .6, 1.4, 18, 50, ORANGE); p.box(1.1 + g, 1.7, .6, 1.4, 18, 50, 0x5a646f);
+    p.box(.7 - g, 1.1 + g, .92, 1.08, 34, 38, 0xb7bfc8, { edge: false });
+    p.box(.25, .65, .15, .5, 4, 40, 0x48515c); panel(p, .3, .6, .5, 22, 36, f);
+  },
+  cnc(p, f) { // cabine fechada com janela e cabeçote
+    basePlate(p, 2, 2);
+    p.box(.2, 1.8, .25, 1.75, 4, 56, 0xdfe3e6);
+    p.faceB(1.75, .35, 1.3, 18, 48, 0x2b3a44);
+    p.faceB(1.75, .7 + f * .08, .86 + f * .08, 30, 48, 0xb7bfc8);
+    if (f % 2) p.faceB(1.75, .72, .84, 24, 28, 0xffd166);
+    p.faceB(1.75, 1.38, 1.7, 26, 48, DKP); p.faceB(1.75, 1.43, 1.65, 38, 45, f % 2 ? 0x6ec6ff : 0x2f6d9e);
+    p.faceA(1.8, .4, 1.6, 40, 52, ORANGE); p.top(.3, 1.7, .35, 1.65, 56, 0xb8bec3);
+  },
+  torno(p, f) { // barramento longo e peça girando
+    basePlate(p, 2, 2);
+    p.box(.15, 1.85, .7, 1.3, 4, 22, 0x3f5e74);
+    p.box(.2, .65, .72, 1.28, 22, 44, 0x4e7088);
+    p.box(1.45, 1.75, .85, 1.15, 22, 36, 0x4e7088);
+    p.box(.65, 1.45, .95, 1.05, 30, 34, f % 2 ? 0xd8dde2 : 0x9aa3ac, { edge: false });
+    p.box(.9 + f * .1, 1.1 + f * .1, .86, 1.14, 22, 28, ORANGE);
+    p.box(.25, .75, .2, .55, 4, 26, 0x48515c); panel(p, .3, .7, .55, 12, 24, f);
+  },
+  fresa(p, f) { // coluna com cabeçote vertical
+    basePlate(p, 2, 2);
+    p.box(.65, 1.35, .25, .8, 4, 62, 0x5d7486);
+    const z = [46, 42, 38, 42][f];
+    p.box(.75, 1.25, .8, 1.25, z, z + 12, ORANGE);
+    p.box(.95, 1.05, .98, 1.08, z - 10, z, 0xc2c9d1, { edge: false });
+    p.box(.45, 1.55, .9, 1.65, 4, 22 , 0x48515c); p.top(.5 + f * .03, 1.5 + f * .03, .95, 1.6, 22, 0x8b96a2);
+    p.box(.85, 1.2, 1.15, 1.45, 22, 28, 0xc4ccd4);
+  },
+  acab(p, f) { // bancada com relógio de medição
+    basePlate(p, 2, 2);
+    p.box(.2, 1.8, .55, 1.5, 4, 22, 0x59626d); p.top(.25, 1.75, .6, 1.45, 22, 0x98a2ad);
+    p.box(.5, .85, .85, 1.2, 22, 34, 0xa5adb5); p.top(.58, .77, .93, 1.12, 34, 0x303840);
+    p.box(1.25, 1.35, .75, .85, 22, 54, STEEL2, { edge: false });
+    p.box(.85, 1.35, .77, .83, 48, 52, 0xe6b422, { edge: false });
+    p.box(.25, 1.75, .15, .4, 4, 44, 0x48515c); panel(p, .35, 1.65, .4, 24, 40, f);
+  },
+  tanque(p, f) { // tanque com líquido e ponte levantando a peça
+    basePlate(p, 2, 2);
+    p.box(.2, 1.8, .55, 1.75, 4, 26, 0x2f5f58);
+    p.top(.28, 1.72, .63, 1.67, 26, (f % 2 ? 0x7fd4c0 : 0x63bfaa));
+    for (let i = 0; i < 4; i++) p.px(...p.P(.45 + i * .3, .85 + ((i + f) % 3) * .25, 27), 0xe6fff8);
+    p.box(.25, .35, .22, .34, 4, 62, STEEL2, { edge: false }); p.box(1.65, 1.75, .22, .34, 4, 62, STEEL2, { edge: false });
+    p.box(.25, 1.75, .22, .34, 58, 62, ORANGE, { edge: false });
+    const z = [34, 42, 50, 42][f];
+    p.box(.9, 1.0, 1.0, 1.1, z, 58, 0x2b2f34, { edge: false }); p.box(.82, 1.08, .94, 1.16, z - 8, z, 0xdfe6ec);
+  },
+  residuo(p, f) { // tanques cilíndricos e tubos
+    basePlate(p, 2, 2);
+    for (const [a, b, c] of [[.3, .35, 0x5e8a7d], [1.1, .35, 0x7a7f3e]]) { p.box(a, a + .6, b, b + .6, 4, 48, c); p.top(a + .1, a + .5, b + .1, b + .5, 48, shade(c, .7)); }
+    p.box(.3, 1.7, 1.2, 1.7, 4, 16, 0x48515c); panel(p, .5, 1.5, 1.7, 7, 15, f);
+    p.box(.9, 1.1, .55, .65, 30, 34, 0x9aa3ac, { edge: false });
+  },
+  brunidora(p, f) { // máquina vertical com haste que sobe e desce dentro do cilindro
+    basePlate(p, 2, 2);
+    p.box(.25, 1.75, .25, .85, 4, 66, 0x6a5d86);
+    p.box(.3, 1.7, .85, 1.7, 4, 20, 0x4b4560);
+    const z = [28, 22, 32, 22][f];
+    p.box(.85, 1.15, 1.05, 1.35, 20, 32, 0xdfe6ec); p.top(.91, 1.09, 1.11, 1.29, 32, 0x20262c);
+    p.box(.95, 1.05, 1.15, 1.25, z + 4, 62, 0xc2c9d1, { edge: false }); p.box(.75, 1.25, .85, 1.3, 54, 62, ORANGE);
+    panel(p, .35, .75, .85, 34, 50, f);
+  },
+  injetora(p, f) { // injetora longa com funil e molde
+    basePlate(p, 2, 2);
+    p.box(.12, 1.88, .6, 1.4, 4, 24, 0x315f83);
+    p.box(.2, .9, .68, 1.32, 24, 40, 0x3f7aa8);
+    p.box(.35, .65, .85, 1.15, 40, 58, 0xd9823b); p.top(.3, .7, .8, 1.2, 58, 0xb86a2c);
+    const g = [.1, .04, 0, .04][f];
+    p.box(1.0, 1.25 - g, .65, 1.35, 24, 50, ORANGE); p.box(1.45 + g, 1.8, .65, 1.35, 24, 50, 0x5a646f);
+    p.box(.2, .9, .15, .48, 4, 30, 0x48515c); panel(p, .3, .8, .48, 14, 26, f);
+    p.box(1.05, 1.75, 1.5, 1.82, 4, 9, 0x23272d); p.box(1.2 + f * .1, 1.42 + f * .1, 1.56, 1.76, 9, 14, 0xe4692a);
+  },
+  bancada(p, f) { // mesa de montagem e testador de motor
+    basePlate(p, 2, 2);
+    p.box(.2, 1.8, .6, 1.45, 4, 22, 0x4e6650); p.top(.25, 1.75, .65, 1.4, 22, 0x8a9a84);
+    p.box(.65, 1.1, .85, 1.2, 22, 36, ORANGE); p.box(.74, 1.0, .94, 1.1, 36, 42, 0xa5adb5);
+    p.box(1.3, 1.65, .8, 1.15, 22, 28, 0xb58d5a);
+    p.box(.25, 1.75, .15, .42, 4, 46, 0x48515c); panel(p, .35, 1.1, .42, 26, 42, f);
+    p.box(1.4, 1.46, .95, 1.01, 28, 42 + f * 2, 0xe6b422, { edge: false });
+  },
+  robot(p, f) { // braço robótico amarelo sobre base
+    basePlate(p, 2, 2);
+    p.box(.25, 1.75, 1.05, 1.75, 4, 20, 0x59626d); p.box(.55, 1.15, 1.2, 1.6, 20, 28, ORANGE);
+    p.box(.5, 1.05, .35, .85, 4, 14, 0x303840);
+    const sw = [0, .18, .3, .18][f];
+    p.box(.62, .93, .47, .73, 14, 40, YELLOW);
+    p.box(.66 + sw * .5, 1.05 + sw * .5, .5 + sw, .7 + sw, 40, 48, YELLOW);
+    p.box(.9 + sw * .5, 1.03 + sw * .5, .6 + sw, .72 + sw, 28, 40, 0xc2a020);
+    p.box(.92 + sw * .5, 1.01 + sw * .5, .62 + sw, .7 + sw, 22, 28, 0xb7bfc8, { edge: false });
+  },
+  label(p, f) { // esteira curta, impressora de etiquetas, leitor e caixas
+    basePlate(p, 2, 2);
+    p.box(.15, 1.85, .95, 1.45, 4, 16, 0x3a4047); p.top(.15, 1.85, 1.0, 1.4, 16, 0x1b1e22);
+    p.box(.25 + f * .25, .65 + f * .25, 1.03, 1.37, 16, 28, CARD);
+    p.box(.3, .75, .3, .75, 4, 34, 0xe8ebee); p.faceB(.75, .36, .68, 18, 30, DKP); p.faceB(.75, .4, .54, 24, 28, f % 2 ? 0x5dd67a : 0x2d7a45);
+    p.box(.43, .62, .75, .82, 18, 21 + f, 0xffffff, { edge: false });
+    p.box(1.25, 1.33, .6, .68, 4, 38, STEEL2, { edge: false }); p.box(1.2, 1.4, .68, .82, 34, 38, 0x20262c, { edge: false });
+    if (f % 2) p.line(...p.P(1.3, .85, 34), ...p.P(1.3, 1.15, 17), 0xff4a4a);
+  },
+  desk(p, f) { // mesas com computadores
+    p.shadow(0, 2, 0, 2, .25); p.top(.04, 1.96, .04, 1.96, 0, 0x3f4a55);
+    for (const [a, b] of [[.2, .25], [1.1, .25], [.2, 1.1], [1.1, 1.1]]) {
+      p.box(a, a + .72, b, b + .5, 0, 14, 0x9c7a4d);
+      p.box(a + .22, a + .5, b + .08, b + .14, 14, 26, 0x1f242a, { edge: false });
+      p.faceB(b + .14, a + .25, a + .47, 17, 25, (f + a * 3) % 2 > 1 ? 0x6ec6ff : 0x3d86b8);
+      p.box(a + .2, a + .5, b + .24, b + .4, 14, 15, 0x2b2f34, { edge: false });
+    }
+  },
+};
+
 function rack(p, a0, a1, b0, b1, color, fill, boxColor) {
   const lv = [6, 26, 46];
   for (const u of [a0, (a0 + a1) / 2, a1 - .08]) for (const v of [b0, b1 - .08]) p.box(u, u + .08, v, v + .08, 0, 62, color, { edge: false });
@@ -168,7 +298,7 @@ function itemTex(stage) {
   return p;
 }
 
-const ROLE_COLOR = { assembler: 0xe4692a, stock: 0x3c9a63, fork: 0xd6b02c, tech: 0xc23b3b };
+const ROLE_COLOR = { assembler: 0xe4692a, stock: 0x3c9a63, fork: 0xd6b02c, tech: 0xc23b3b, it: 0x3f7fd0, office: 0x7a6bb8 };
 const SKIN = [0xf0c49a, 0xc98f60, 0x8a5a38];
 function workerTex(role, back, frame, skin) {
   const p = new Pix(16, 26), c = ROLE_COLOR[role], pants = 0x2f3b4b, d = shade(c, .7);
@@ -184,7 +314,7 @@ function workerTex(role, back, frame, skin) {
   p.rect(5, 3, 7, 6, SKIN[skin]);
   if (!back) { p.px(6, 5, 0x20242a); p.px(10, 5, 0x20242a); p.rect(7, 7, 3, 1, shade(SKIN[skin], .75)); }
   else p.rect(5, 6, 7, 3, 0x3b2c20);
-  const hat = role === 'tech' ? 0xe9edf0 : role === 'stock' ? 0xe6b422 : role === 'fork' ? 0xf0f0f0 : 0xf2d23f;
+  const hat = role === 'it' || role === 'office' ? 0x3b2c20 : role === 'tech' ? 0xe9edf0 : role === 'stock' ? 0xe6b422 : role === 'fork' ? 0xf0f0f0 : 0xf2d23f;
   p.rect(4, 2, 9, 2, hat); p.rect(5, 1, 7, 1, shade(hat, 1.1)); p.rect(4, 4, 9, 1, shade(hat, .72));
   return p;
 }
@@ -215,86 +345,85 @@ function forkTex(back, loaded) {
   }
   return p;
 }
-function truckTex() {
-  const p = new Pix(330, 190, 160, 110);
-  p.top(-.1, 4.5, -.05, 1.15, 0, 0, .3);
-  p.box(0, .95, .05, .95, 8, 42, 0xc7d0d8);             // cabine
-  p.faceB(.95, .1, .75, 24, 38, 0x1f3442);
-  p.faceA(.95, .08, .92, 24, 36, 0x294455);
-  p.box(.95, 4.4, 0, 1, 12, 76, 0xe7ecef);               // baú
-  p.faceB(1, 1, 4.35, 22, 27, ORANGE);
-  p.faceB(1, 1, 4.35, 14, 17, 0x444b53);
-  p.box(.95, 4.4, .05, .95, 6, 12, 0x2b2f34, { edge: false });
-  for (const u of [.4, 2.7, 3.7]) { p.box(u - .16, u + .16, .96, 1.04, 0, 12, 0x101215, { edge: false }); p.box(u - .06, u + .06, 1, 1.05, 3, 9, 0xaab3bc, { edge: false }); }
+// u = comprimento a partir da cabine (0 a 4,4); v = largura (0 a 1). dir é o sentido em que o caminhão anda.
+function truckTex(dir) {
+  const p = new Pix(340, 240, 170, 125), L = 4.4;
+  const R = (u0, u1, v0, v1) => (dir === 'W' ? [u0, u1, v0, v1] : dir === 'E' ? [L - u1, L - u0, v0, v1] : [v0, v1, u0, u1]);
+  const B = (u0, u1, v0, v1, z0, z1, c, o) => { const [a0, a1, b0, b1] = R(u0, u1, v0, v1); p.box(a0, a1, b0, b1, z0, z1, c, o); };
+  const side = (u0, u1, z0, z1, c) => { // pinta a lateral visível do caminhão
+    if (dir === 'N') p.faceA(1, u0, u1, z0, z1, c); else { const [a0, a1] = R(u0, u1, 0, 1); p.faceB(1, a0, a1, z0, z1, c); }
+  };
+  { const [a0, a1, b0, b1] = R(-.05, L + .1, -.05, 1.15); p.top(a0, a1, b0, b1, 0, 0, .3); }
+  const paint = () => {
+    B(.95, L, .05, .95, 6, 12, 0x2b2f34, { edge: false });
+    B(.95, L, 0, 1, 12, 76, 0xe7ecef);                      // baú
+    side(1, L - .05, 22, 27, ORANGE); side(1, L - .05, 14, 17, 0x444b53);
+  };
+  const cab = () => {
+    B(0, .95, .05, .95, 8, 42, 0xc7d0d8);                   // cabine
+    side(.1, .75, 24, 38, 0x1f3442);
+    if (dir === 'E') p.faceA(L, .1, .9, 24, 37, 0x294455);  // para-brisa à vista
+    if (dir === 'N') p.faceB(.95, .1, .9, 24, 36, 0x294455);
+    if (dir === 'W') p.faceA(.95, .08, .92, 24, 36, 0x294455);
+  };
+  // Desenha primeiro o que fica atrás na tela.
+  if (dir === 'E') { paint(); cab(); } else { cab(); paint(); }
+  for (const u of [.4, 2.7, 3.7]) { B(u - .16, u + .16, .96, 1.04, 0, 12, 0x101215, { edge: false }); }
+  return p;
+}
+function bayTex(color) {
+  const p = fp(2, 5, 34);
+  p.top(0, 2, 0, 5, 0, (x, y) => shade(0x3a3d42, .9 + hash(x >> 1, y >> 1) * .14));
+  p.hazard(0, .16, 0, 5); p.hazard(1.84, 2, 0, 5);
+  for (let b = .9; b < 4.6; b += 1) p.poly([p.P(1, b - .28), p.P(.62, b + .08), p.P(.8, b + .08), p.P(1, b - .1), p.P(1.2, b + .08), p.P(1.38, b + .08)], color);
+  p.box(.3, 1.7, .08, .22, 0, 9, 0xe6b422);              // batente de parada
+  p.box(.02, .14, .05, .17, 0, 30, color); p.box(1.86, 1.98, .05, .17, 0, 30, color);
+  p.box(.02, 1.98, .05, .15, 30, 34, 0x2b2f34, { edge: false });
   return p;
 }
 
-export function buildFloorTexture(scene, W, H) {
-  const pad = 2, cw = (W + H + pad * 2) * 32, ch = (W + H + pad * 2) * 16 + 2;
-  const p = new Pix(cw, ch, (H + pad) * 32, 0);
-  const isoOf = (x, y) => { const sx = x - p.ox, sy = y - p.oy; return [(sx / 32 + sy / 16) / 2 - pad, (sy / 16 - sx / 32) / 2 - pad]; };
-  const lampX = [], lampY = [];
-  for (let a = 3; a < W; a += 6) lampX.push(a);
-  for (let b = 3; b < H; b += 5) lampY.push(b);
+export function buildZoneFloor(scene, z) {
+  const cw = (z.w + z.h) * 32, ch = (z.w + z.h) * 16 + 2, p = new Pix(cw, ch, z.h * 32, 0);
+  const lamps = [];
+  for (let a = 3; a < z.w; a += 6) for (let b = 2; b < z.h; b += 4) lamps.push([a, b]);
   for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
-    const [a, b] = isoOf(x + .5, y + .5);
-    if (a < -pad || b < -pad || a > W + pad || b > H + pad) continue;
-    if (a < 0 || b < 0 || a >= W || b >= H) { // calçada ao redor do galpão
-      const n = hash(x >> 1, y >> 1); p.px(x, y, shade(0x34383d, .88 + n * .16)); continue;
-    }
-    const fa = a % 1, fb = b % 1;
-    let c = 0x6c7277;
-    const n = hash(x, y), n2 = hash(Math.floor(a * 4), Math.floor(b * 4));
-    let f = .88 + n * .08 + n2 * .06;
+    const sx = x + .5 - p.ox, sy = y + .5, ia = (sx / 32 + sy / 16) / 2, ib = (sy / 16 - sx / 32) / 2;
+    if (ia < 0 || ib < 0 || ia >= z.w || ib >= z.h) continue;
+    const n = hash(x + z.x * 37, y + z.y * 13), n2 = hash(Math.floor(ia * 4), Math.floor(ib * 4)), fa = ia % 1, fb = ib % 1;
+    let c = z.tint, f = .88 + n * .08 + n2 * .06;
     if (fa < .025 || fb < .025) f *= .86;
-    if (Math.floor(a) % 4 === 0 && fa < .04 || Math.floor(b) % 4 === 0 && fb < .04) f *= .84;
-    // Caminho de pedestres com pintura verde e faixas de segurança
-    if (b >= 6.3 && b < 8.7) { c = 0x4e6a60; }
-    if ((b >= 6.25 && b < 6.42) || (b >= 8.58 && b < 8.75)) { c = 0xe6b422; f = .92 + n * .08; }
-    // Borda perimetral
-    if (a < .22 || b < .22 || a > W - .22 || b > H - .22) { c = ((Math.floor((a + b) * 2)) & 1) ? 0xe6b422 : 0x1d1f22; f = .9 + n * .1; }
-    // Poças de luz das luminárias
+    if (Math.floor(ia) % 4 === 0 && fa < .04 || Math.floor(ib) % 4 === 0 && fb < .04) f *= .84;
+    if (z.id === 'prod' && ib >= 4.05 && ib < 5.95) c = 0x4e6a60; // corredor de pedestres
+    if (z.id === 'prod' && ((ib >= 4 && ib < 4.14) || (ib >= 5.86 && ib < 6))) { c = 0xe6b422; f = .92 + n * .08; }
+    if (ia < .18 || ib < .18 || ia > z.w - .18 || ib > z.h - .18) { c = ((Math.floor((ia + ib) * 2)) & 1) ? 0xe6b422 : 0x1d1f22; f = .9 + n * .1; }
     let light = 0;
-    for (const la of lampX) for (const lb of lampY) { const d = (a - la) ** 2 + (b - lb) ** 2; if (d < 12) light += (1 - d / 12) * .22; }
+    for (const [la, lb] of lamps) { const d = (ia - la) ** 2 + (ib - lb) ** 2; if (d < 12) light += (1 - d / 12) * .22; }
     p.px(x, y, shade(c, f + light));
   }
-  add(scene, 'floor', p);
-  return { padPx: pad * 32 };
+  add(scene, `floor_${z.id}`, p);
 }
 
-export function buildWallTextures(scene, W, H) {
-  const hz = 118;
-  // Parede do fundo ao longo de a (b = 0)
-  const w1 = new Pix(W * 32 + 18, W * 16 + hz + 8, 2, hz + 2);
-  w1.poly([w1.P(0, 0, hz), w1.P(W, 0, hz), w1.P(W, 0, 0), w1.P(0, 0, 0)], (x, y) => shade(0x8a939c, .86 + hash(x >> 2, y >> 3) * .12));
-  for (let a = 0; a < W; a += 2) {
-    w1.poly([w1.P(a + .25, 0, 92), w1.P(a + 1.75, 0, 92), w1.P(a + 1.75, 0, 62), w1.P(a + .25, 0, 62)], 0xbad8e6);
-    w1.line(...w1.P(a + 1, 0, 92), ...w1.P(a + 1, 0, 62), 0x56616b);
-    w1.poly([w1.P(a, 0, hz), w1.P(a + .12, 0, hz), w1.P(a + .12, 0, 0), w1.P(a, 0, 0)], 0x4a525b);
+// Paredes em segmentos de uma célula: cada um ordena a profundidade com quem passa dos dois lados.
+export function buildWallTextures(scene) {
+  for (const h of [118, 56, 18]) {
+    const A = new Pix(36, 16 + h + 6, 2, h + 2), B = new Pix(36, 16 + h + 6, 34, h + 2);
+    A.poly([A.P(0, 0, h), A.P(1, 0, h), A.P(1, 0, 0), A.P(0, 0, 0)], (x, y) => shade(0x8a939c, .86 + hash(x >> 2, y >> 3) * .12));
+    B.poly([B.P(0, 0, h), B.P(0, 1, h), B.P(0, 1, 0), B.P(0, 0, 0)], (x, y) => shade(0x7a838d, .86 + hash(x >> 2, y >> 3) * .12));
+    if (h > 18) {
+      const z0 = h * .52, z1 = h * .8;
+      A.poly([A.P(.14, 0, z1), A.P(.86, 0, z1), A.P(.86, 0, z0), A.P(.14, 0, z0)], 0xbad8e6);
+      B.poly([B.P(0, .14, z1), B.P(0, .86, z1), B.P(0, .86, z0), B.P(0, .14, z0)], 0xa9cad9);
+    }
+    A.poly([A.P(0, 0, h), A.P(.08, 0, h), A.P(.08, 0, 0), A.P(0, 0, 0)], 0x4a525b);
+    B.poly([B.P(0, 0, h), B.P(0, .08, h), B.P(0, .08, 0), B.P(0, 0, 0)], 0x424a53);
+    A.poly([A.P(0, 0, 9), A.P(1, 0, 9), A.P(1, 0, 0), A.P(0, 0, 0)], 0x3c4249);
+    B.poly([B.P(0, 0, 9), B.P(0, 1, 9), B.P(0, 1, 0), B.P(0, 0, 0)], 0x343a41);
+    add(scene, `wallA_${h}`, A); add(scene, `wallB_${h}`, B);
   }
-  w1.poly([w1.P(0, 0, 14), w1.P(W, 0, 14), w1.P(W, 0, 0), w1.P(0, 0, 0)], 0x3c4249);
-  add(scene, 'wallA', w1);
-  // Parede do fundo ao longo de b (a = 0)
-  const w2 = new Pix(H * 32 + 18, H * 16 + hz + 8, H * 32 + 2, hz + 2);
-  w2.poly([w2.P(0, 0, hz), w2.P(0, H, hz), w2.P(0, H, 0), w2.P(0, 0, 0)], (x, y) => shade(0x7a838d, .86 + hash(x >> 2, y >> 3) * .12));
-  for (let b = 0; b < H; b += 2) {
-    w2.poly([w2.P(0, b + .25, 92), w2.P(0, b + 1.75, 92), w2.P(0, b + 1.75, 62), w2.P(0, b + .25, 62)], 0xa9cad9);
-    w2.poly([w2.P(0, b, hz), w2.P(0, b + .12, hz), w2.P(0, b + .12, 0), w2.P(0, b, 0)], 0x424a53);
-  }
-  w2.poly([w2.P(0, 0, 14), w2.P(0, H, 14), w2.P(0, H, 0), w2.P(0, 0, 0)], 0x343a41);
-  add(scene, 'wallB', w2);
-  // Paredes frontais baixas para deixar o interior visível
-  const fz = 18;
-  const f1 = new Pix(W * 32 + 18, W * 16 + fz + 8, 2, fz + 2);
-  f1.poly([f1.P(0, 0, fz), f1.P(W, 0, fz), f1.P(W, 0, 0), f1.P(0, 0, 0)], (x, y) => shade(0x717a84, .9 + hash(x >> 2, y) * .1));
-  for (let a = 0; a < W; a += 2) f1.poly([f1.P(a, 0, fz), f1.P(a + .1, 0, fz), f1.P(a + .1, 0, 0), f1.P(a, 0, 0)], 0x3e454d);
-  add(scene, 'wallFrontA', f1);
-  const f2 = new Pix(H * 32 + 18, H * 16 + fz + 8, H * 32 + 2, fz + 2);
-  f2.poly([f2.P(0, 0, fz), f2.P(0, H, fz), f2.P(0, H, 0), f2.P(0, 0, 0)], (x, y) => shade(0x5c6570, .9 + hash(x >> 2, y) * .1));
-  add(scene, 'wallFrontB', f2);
 }
 
 export function buildAllTextures(scene) {
+  buildWallTextures(scene);
   const s1 = (fn, key, frames) => { for (let f = 0; f < frames; f++) { const p = fp(2, 2, 70); fn(p, f); add(scene, `${key}_${f}`, p); } };
   s1(station1, 'st1', 4); s1(station2, 'st2', 4); s1(station3, 'st3', 4);
   for (let i = 0; i <= 4; i++) {
@@ -303,6 +432,7 @@ export function buildAllTextures(scene) {
   }
   for (let i = 0; i <= 6; i++) { const p = fp(2, 2, 44); pallet(p, i); add(scene, `pallet_${i}`, p); }
   { const p = fp(3, 2, 60); rest(p); add(scene, 'rest_0', p); }
+  for (const k of Object.keys(ART)) for (let f = 0; f < 4; f++) { const p = fp(2, 2, 72); ART[k](p, f); add(scene, `${k}_${f}`, p); }
   for (let f = 0; f < 4; f++) {
     add(scene, `belt_E_${f}`, beltTex('a', false, f)); add(scene, `belt_W_${f}`, beltTex('a', true, f));
     add(scene, `belt_S_${f}`, beltTex('b', false, f)); add(scene, `belt_N_${f}`, beltTex('b', true, f));
@@ -313,7 +443,8 @@ export function buildAllTextures(scene) {
     add(scene, `w_${role}_${back}_${f}_${sk}`, workerTex(role, back, f, sk));
   }
   for (const back of [0, 1]) for (const l of [0, 1]) add(scene, `fork_${back}_${l}`, forkTex(back, l));
-  add(scene, 'truck', truckTex());
+  for (const d of ['W', 'E', 'N']) add(scene, `truck_${d}`, truckTex(d));
+  add(scene, 'bayIn_0', bayTex(0x4f9bd0)); add(scene, 'bayOut_0', bayTex(ORANGE));
 
   // Pequenos elementos de efeito
   const glow = document.createElement('canvas'); glow.width = glow.height = 256;

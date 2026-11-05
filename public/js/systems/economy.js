@@ -2,6 +2,7 @@ import { CLIENTS, GAME, MODELS } from '../config.js';
 import { nextId, rng, blankDay, blankHour } from '../core/state.js';
 import { computeEfficiency } from './production.js';
 import { stationPower, isStation } from './machines.js';
+import { requestTruck } from './trucks.js';
 
 export function pay(sim, value, cat) {
   const s = sim.s;
@@ -36,6 +37,12 @@ export function acceptOffer(sim, id) {
 }
 export function declineOffer(sim, id) { sim.s.offers = sim.s.offers.filter((o) => o.id !== id); return { ok: true }; }
 
+function dispatch(s, label, qty, value) {
+  const id = nextId(s);
+  s.shipments.push({ id, label, qty, value });
+  requestTruck(s, 'out', id);
+}
+
 export function shipOrder(sim, id) {
   const s = sim.s, o = s.orders.find((x) => x.id === id);
   if (!o) return { ok: false };
@@ -43,8 +50,7 @@ export function shipOrder(sim, id) {
   if (q <= 0) return { ok: false, msg: 'Não há motosserras prontas na expedição.' };
   s.finished -= q; o.shipped += q;
   pay(sim, GAME.freightOut, 'other');
-  s.shipments.push({ id: nextId(s), label: o.client, qty: q, value: q * o.unit, t: GAME.shipSeconds });
-  sim.emit('truck', { kind: 'out' });
+  dispatch(s, o.client, q, q * o.unit);
   if (o.shipped >= o.qty) {
     s.orders = s.orders.filter((x) => x.id !== id);
     s.reputation = Math.min(100, s.reputation + (o.urgent ? 3 : 1.5));
@@ -61,9 +67,8 @@ export function sellSpot(sim, qty) {
   for (let i = 0; i < q; i++) { total += spotPrice(s); s.spot.factor = Math.max(.55, s.spot.factor * .985); }
   s.finished -= q;
   pay(sim, GAME.freightOut, 'other');
-  s.shipments.push({ id: nextId(s), label: 'Mercado', qty: q, value: total, t: GAME.shipSeconds });
-  sim.emit('truck', { kind: 'out' });
-  return { ok: true, msg: `${q} unidades vendidas. R$ ${total.toLocaleString('pt-BR')} chegam com a entrega.` };
+  dispatch(s, 'Mercado', q, total);
+  return { ok: true, msg: `${q} unidades vendidas. R$ ${total.toLocaleString('pt-BR')} chegam quando o caminhão partir.` };
 }
 
 export function takeLoan(sim, v) {
@@ -127,12 +132,6 @@ export function updateEconomy(sim, dt) {
       if (s.finished >= left || (o.deadline < 30 && s.finished > 0)) shipOrder(sim, o.id);
     }
   }
-
-  for (const sh of s.shipments) {
-    sh.t -= dt;
-    if (sh.t <= 0) { receive(sim, sh.value); s.stats.sold += sh.qty; sim.emit('toast', { kind: 'good', text: `Recebido R$ ${Math.round(sh.value).toLocaleString('pt-BR')} de ${sh.label}.` }); }
-  }
-  s.shipments = s.shipments.filter((x) => x.t > 0);
 
   // Relógio: fecha a hora e o dia de trabalho.
   s.hourClock += dt;

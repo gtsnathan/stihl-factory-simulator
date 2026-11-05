@@ -1,9 +1,10 @@
-import { BUILDINGS, ROLES, STATION_STAGES } from '../config.js';
+import { BUILDINGS, MACHINES, ROLES, STATION_STAGES } from '../config.js';
 import { accessTile, findPath } from '../core/grid.js';
 import { makeWorker } from '../core/state.js';
 import { pay } from './economy.js';
 import { completeRepair } from './machines.js';
-import { dockSpace, depots } from './inventory.js';
+import { dockSpace, depots, stockUsed, depotCapacity } from './inventory.js';
+import { computeEffects, deptActive } from './sectors.js';
 
 export function workerProductivity(w) {
   return (w.base + w.train * .06 + Math.min(.2, w.xp / 3600 * .2)) * (1 - .35 * w.fatigue);
@@ -21,7 +22,7 @@ function walk(s, w, dt) {
   w.moving = false;
   if (!w.path.length) return Math.hypot(w.x - (w.dest?.x + .5), w.y - (w.dest?.y + .5)) < .08;
   const t = w.path[0], tx = t.x + .5, ty = t.y + .5;
-  const dx = tx - w.x, dy = ty - w.y, d = Math.hypot(dx, dy), step = ROLES[w.role].speed * dt * (1 - .2 * w.fatigue);
+  const dx = tx - w.x, dy = ty - w.y, d = Math.hypot(dx, dy), step = ROLES[w.role].speed * dt * (1 - .2 * w.fatigue) * (w.role === 'stock' || w.role === 'fork' ? s.haulFx || 1 : 1);
   w.moving = true;
   if (Math.abs(dx) > .01 || Math.abs(dy) > .01) { w.fx = Math.sign(dx); w.fy = Math.sign(dy); }
   if (d <= step) { w.x = tx; w.y = ty; w.path.shift(); } else { w.x += dx / d * step; w.y += dy / d * step; }
@@ -31,26 +32,33 @@ function walk(s, w, dt) {
 function moveTo(s, w, x, y, dt) { go(s, w, x, y); if (!w.path.length) w.x = x + .5, w.y = y + .5; return walk(s, w, dt); }
 const byId = (s, id) => s.buildings.find((b) => b.id === id);
 
+// Descansa na área mais próxima. Longe de qualquer área, faz a pausa no posto e recupera mais devagar.
 function rest(s, w, dt) {
-  const r = s.buildings.find((b) => b.type === 'rest');
-  if (!r) { w.fatigue = Math.max(0, w.fatigue - .012 * dt); if (w.fatigue < .3) w.state = 'idle'; return; }
+  let r = null, best = 16;
+  for (const b of s.buildings) if (b.type === 'rest') { const d = Math.abs(b.x - w.x) + Math.abs(b.y - w.y); if (d < best) { best = d; r = b; } }
+  if (w.dest && w.restAt && !r) r = s.buildings.find((b) => b.id === w.restAt) || null;
+  if (!r) { w.moving = false; w.working = false; w.fatigue = Math.max(0, w.fatigue - .025 * dt); if (w.fatigue < .22) w.state = 'idle'; return; }
+  w.restAt = r.id;
   const a = accessTile(s, r, w.x, w.y);
   if (a && moveTo(s, w, a.x, a.y, dt)) {
     w.working = false;
     w.fatigue = Math.max(0, w.fatigue - .05 * dt);
-    if (w.fatigue < .22) w.state = 'idle';
+    if (w.fatigue < .22) { w.state = 'idle'; w.restAt = null; }
   }
 }
 
+const needsRole = (b, role) => (STATION_STAGES[b.type] ? role === 'assembler' : MACHINES[b.type]?.role === role);
 function assembler(s, w, dt) {
   let b = w.job && byId(s, w.job);
   if (!b) {
-    w.job = null; w.state = 'idle'; w.working = false;
-    b = s.buildings.find((x) => STATION_STAGES[x.type] && !s.workers.some((o) => o.role === 'assembler' && o.job === x.id));
+    w.job = null; w.state = 'idle'; w.working = false; w.moving = false;
+    if ((w.seek = (w.seek || 0) - dt) > 0) return;
+    w.seek = 1;
+    b = s.buildings.find((x) => needsRole(x, w.role) && !s.workers.some((o) => o.job === x.id && o.role === w.role));
     if (b) w.job = b.id; else return;
   }
-  const a = accessTile(s, b, w.x, w.y);
   if (w.state !== 'work') {
+    const a = accessTile(s, b, w.x, w.y);
     if (a && moveTo(s, w, a.x, a.y, dt)) { w.state = 'work'; b.operatorId = w.id; }
     return;
   }
@@ -60,34 +68,43 @@ function assembler(s, w, dt) {
   w.working = b.status === 'running';
 }
 
+const matsOf = (b) => STATION_STAGES[b.type]?.mats || MACHINES[b.type]?.in || null;
+
+// Carrinho de abastecimento: leva material às máquinas e busca o que elas produziram.
 function stockKeeper(s, w, dt) {
   if (w.state === 'idle') {
-    let best = null, bestCycles = 3;
+    w.moving = false;
+    if ((w.seek = (w.seek || 0) - dt) > 0) return;
+    w.seek = .5;
+    let best = null, bestCycles = 3, collect = null, collectN = 1;
+    const room = stockUsed(s) < depotCapacity(s);
     for (const b of s.buildings) {
-      const def = STATION_STAGES[b.type];
-      if (!def || b.supplyBy) continue;
+      if (!b.t || b.supplyBy) continue;
+      if (room && b.out > collectN) { collectN = b.out; collect = b; }
+      const mats = matsOf(b);
+      if (!mats || b.broken) continue;
       let cycles = Infinity, available = false;
-      for (const k in def.mats) {
-        cycles = Math.min(cycles, (b.buffer[k] || 0) / def.mats[k]);
-        if (s.stock[k] > 0 && (b.buffer[k] || 0) < def.mats[k] * 4) available = true;
+      for (const k in mats) {
+        cycles = Math.min(cycles, (b.buffer[k] || 0) / mats[k]);
+        if (s.stock[k] > 0 && (b.buffer[k] || 0) < mats[k] * 4) available = true;
       }
       if (available && cycles < bestCycles) { bestCycles = cycles; best = b; }
     }
-    if (best) { best.supplyBy = w.id; w.job = best.id; w.state = 'toDepot'; }
-    else { w.moving = false; return; }
+    if (collect && (collectN >= 4 || !best)) { collect.supplyBy = w.id; w.job = collect.id; w.state = 'toOutput'; }
+    else if (best) { best.supplyBy = w.id; w.job = best.id; w.state = 'toDepot'; }
+    else return;
   }
-  const b = byId(s, w.job);
+  const b = byId(s, w.job), dep = depots(s)[0];
   if (w.state === 'toDepot') {
-    const dep = depots(s)[0];
     if (!b || !dep) { release(w, b); w.state = 'idle'; return; }
     const a = accessTile(s, dep, w.x, w.y);
     if (a && moveTo(s, w, a.x, a.y, dt)) {
       w.wait += dt;
       if (w.wait > 1) {
         w.wait = 0;
-        const def = STATION_STAGES[b.type]; w.carry = {}; let room = 16, qty = 0;
-        for (const k in def.mats) {
-          const need = Math.max(0, def.mats[k] * 4 - (b.buffer[k] || 0));
+        const mats = matsOf(b); w.carry = {}; let room = 40, qty = 0;
+        for (const k in mats) {
+          const need = Math.max(0, mats[k] * (MACHINES[b.type] ? 8 : 4) - (b.buffer[k] || 0));
           const q = Math.min(need, s.stock[k], room);
           if (q > 0) { w.carry[k] = q; s.stock[k] -= q; room -= q; qty += q; }
         }
@@ -106,6 +123,24 @@ function stockKeeper(s, w, dt) {
         for (const k in w.carry) b.buffer[k] = (b.buffer[k] || 0) + w.carry[k];
         w.carry = null; w.carryQty = 0; release(w, b); w.state = 'idle';
       }
+    }
+  } else if (w.state === 'toOutput') {
+    if (!b) { w.job = null; w.state = 'idle'; return; }
+    const a = accessTile(s, b, w.x, w.y);
+    if (a && moveTo(s, w, a.x, a.y, dt)) {
+      w.wait += dt;
+      if (w.wait > .7) {
+        w.wait = 0;
+        const q = Math.min(40, b.out), item = b.type === 'injetora' ? b.mold || 'carcaca' : MACHINES[b.type].out;
+        b.out -= q; w.carry = { [item]: q }; w.carryQty = q; release(w, b); w.state = 'toDrop';
+      }
+    }
+  } else if (w.state === 'toDrop') {
+    if (!dep) return;
+    const a = accessTile(s, dep, w.x, w.y);
+    if (a && moveTo(s, w, a.x, a.y, dt)) {
+      w.wait += dt;
+      if (w.wait > .7) { w.wait = 0; returnCarry(s, w); w.state = 'idle'; }
     }
   }
 }
@@ -137,49 +172,70 @@ function forklift(s, w, dt) {
   }
 }
 
+// Técnico atende chamados da sua área: vai ao local, diagnostica e repara.
 function technician(sim, w, dt) {
-  const s = sim.s;
+  const s = sim.s, kind = w.role === 'it' ? 'it' : 'maint';
   if (w.state === 'idle') {
-    const list = s.buildings.filter((b) => STATION_STAGES[b.type] && !b.techBy && !b.externalRepair && (b.broken || b.wear > 75));
-    if (!list.length) { w.moving = false; return; }
-    list.sort((a, b) => (b.broken - a.broken) || b.wear - a.wear);
-    list[0].techBy = w.id; w.job = list[0].id; w.state = 'toMachine';
+    w.moving = false; w.working = false;
+    if ((w.seek = (w.seek || 0) - dt) > 0) return;
+    w.seek = .5;
+    const list = s.buildings.filter((b) => b.t && !b.techBy && !b.externalRepair && (b.broken ? (b.fault?.kind || 'maint') === kind : kind === 'maint' && b.wear > 75));
+    if (list.length) {
+      list.sort((a, b) => (b.broken - a.broken) || b.wear - a.wear);
+      list[0].techBy = w.id; w.job = list[0].id; w.belt = null; w.state = 'toMachine';
+    } else if (kind === 'maint') {
+      const c = Object.values(s.belts).find((x) => x.jam && !x.techBy && !(x.jamT > 0));
+      if (!c) return;
+      c.techBy = w.id; w.belt = `${c.x},${c.y}`; w.job = null; w.state = 'toMachine';
+    } else return;
+  }
+  const time = 8 * sim.fx.repair, diag = 3;
+  if (w.belt) {
+    const c = s.belts[w.belt];
+    if (!c || !c.jam) { if (c) c.techBy = null; w.belt = null; w.state = 'idle'; w.wait = 0; return; }
+    if (moveTo(s, w, c.x, c.y, dt)) {
+      w.working = true; w.wait += dt; w.diag = w.wait < diag;
+      if (w.wait > diag + time * .6) { w.wait = 0; w.working = false; c.jam = null; c.techBy = null; w.belt = null; w.state = 'idle'; sim.emit('toast', { kind: 'good', text: 'Esteira liberada.' }); }
+    }
+    return;
   }
   const b = byId(s, w.job);
   if (!b) { w.state = 'idle'; w.working = false; return; }
   const a = accessTile(s, b, w.x, w.y);
   if (a && moveTo(s, w, a.x, a.y, dt)) {
     if (!b.broken) { b.broken = true; b.techStop = true; }
-    w.working = true; w.wait += dt;
+    w.working = true; w.wait += dt; w.diag = w.wait < diag;
     w.fx = Math.sign(b.x + b.w / 2 - w.x); w.fy = Math.sign(b.y + b.h / 2 - w.y);
-    if (w.wait > 8) { w.wait = 0; w.working = false; completeRepair(sim, b, 'Técnico interno', 250); w.job = null; w.state = 'idle'; }
+    if (w.wait > diag + time) { w.wait = 0; w.working = false; completeRepair(sim, b, kind === 'it' ? 'Técnico de TI' : 'Técnico interno', 250); w.job = null; w.state = 'idle'; }
   }
 }
 
 export function updateWorker(sim, w, dt) {
   const s = sim.s;
   if (w.fatigue >= .92 && w.state !== 'rest' && !w.carryQty && !w.carry) {
-    if (w.role === 'assembler') { const b = byId(s, w.job); if (b && b.operatorId === w.id) b.operatorId = null; }
+    if (w.role === 'assembler' || w.role === 'office') { const b = byId(s, w.job); if (b && b.operatorId === w.id) b.operatorId = null; }
     else if (w.role === 'stock') { const b = byId(s, w.job); release(w, b); }
     else if (w.role === 'fork') { const b = byId(s, w.job); if (b && b.claim === w.id) b.claim = null; w.job = null; }
-    else if (w.role === 'tech') return technician(sim, w, dt);
+    else if (w.role === 'tech' || w.role === 'it') return technician(sim, w, dt);
     w.state = 'rest'; w.working = false; w.dest = null;
   }
   if (w.state === 'rest') { rest(s, w, dt); return; }
-  if (w.role === 'assembler') assembler(s, w, dt);
+  if (w.role === 'assembler' || w.role === 'office') assembler(s, w, dt);
   else if (w.role === 'stock') stockKeeper(s, w, dt);
   else if (w.role === 'fork') forklift(s, w, dt);
-  else if (w.role === 'tech') technician(sim, w, dt);
+  else technician(sim, w, dt);
 }
 
 export function hire(sim, role) {
   const s = sim.s, r = ROLES[role];
-  if (s.cash < r.hireCost) return { ok: false, msg: 'Falta dinheiro para contratar.' };
-  if (role === 'assembler' && !s.buildings.some((b) => STATION_STAGES[b.type] && !s.workers.some((w) => w.role === 'assembler' && w.job === b.id))) {
-    return { ok: false, msg: 'Toda estação já tem montador. Construa outra estação primeiro.' };
+  const cost = Math.round(r.hireCost * sim.fx.hire);
+  if (s.cash < cost) return { ok: false, msg: 'Falta dinheiro para contratar.' };
+  if (r.needs && !deptActive(s, r.needs)) return { ok: false, msg: 'Construa o prédio de TI e contrate um analista para ele antes.' };
+  if ((role === 'assembler' || role === 'office') && !s.buildings.some((b) => needsRole(b, role) && !s.workers.some((w) => w.role === role && w.job === b.id))) {
+    return { ok: false, msg: role === 'office' ? 'Todo departamento já tem analista. Construa outro em Complexo.' : 'Toda máquina já tem operador. Construa outra primeiro.' };
   }
-  pay(sim, r.hireCost, 'other');
-  const w = makeWorker(s, role, 7, 8); s.workers.push(w);
+  pay(sim, cost, 'other');
+  const w = makeWorker(s, role, 7, 26); s.workers.push(w);
   return { ok: true, msg: `${w.name} foi contratado(a).` };
 }
 export function fire(sim, id) {
@@ -207,4 +263,5 @@ export function train(sim, id) {
   return { ok: true, msg: `${w.name} chegou ao nível ${w.train} de treinamento.` };
 }
 export const trainCost = (w) => 2500 * (w.train + 1);
+export { computeEffects };
 export const stationLabel = (b) => BUILDINGS[b.type].name;

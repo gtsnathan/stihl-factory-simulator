@@ -5,11 +5,11 @@ import { pushToOutputs } from './logistics.js';
 import { workerProductivity } from './workers.js';
 import { finishUnit } from './production.js';
 
-export const isStation = (b) => !!STATION_STAGES[b.type];
+export const isStation = (b) => !!b.t;
 export const REPAIR = { externalCost: 1800, externalTime: 30, preventiveCost: 900, preventiveTime: 12 };
 
 export function cycleTime(sim, b) {
-  return STATION_STAGES[b.type].cycle * (sim.s.research.done.pneumatic ? .85 : 1);
+  return STATION_STAGES[b.type].cycle * (sim.s.research.done.pneumatic ? .85 : 1) * sim.fx.cycle;
 }
 export function failureChance(b) { // chance por hora de jogo, mostrada ao jogador
   if (b.wear < 50) return 0;
@@ -45,12 +45,13 @@ export function updateStation(sim, b, dt) {
 
   b.status = 'running'; b.t.run += dt; b.hours += dt / 45;
   b.progress += dt / cycleTime(sim, b) * workerProductivity(op);
-  op.xp += dt; op.fatigue = Math.min(1, op.fatigue + .0025 * dt);
-  const wearRate = .11 * (s.research.done.lube ? .7 : 1);
+  op.xp += dt; op.fatigue = Math.min(1, op.fatigue + .0025 * sim.fx.fatigue * dt);
+  const wearRate = .11 * (s.research.done.lube ? .7 : 1) * sim.fx.wear;
   b.wear = Math.min(100, b.wear + wearRate * dt);
   if (b.wear > 50 && rng(s) < Math.pow((b.wear - 50) / 50, 2) * .01 * dt || b.wear >= 100) {
     b.broken = true; b.externalRepair = false; b.status = 'broken';
-    sim.emit('toast', { kind: 'bad', text: `${BUILDINGS[b.type].name} quebrou. Abra a máquina e peça o reparo.` });
+    b.fault = { kind: 'maint', text: `${BUILDINGS[b.type].name} parada por desgaste`, at: s.time };
+    sim.emit('toast', { kind: 'bad', text: `Chamado aberto: ${b.fault.text}.` });
     sim.emit('breakdown', { id: b.id });
     return;
   }
@@ -80,9 +81,10 @@ export function completeRepair(sim, b, label, cost) {
   const s = sim.s;
   const prev = b.preventive;
   if (!prev && cost) pay(sim, cost, 'maint');
-  b.history.unshift({ day: s.day, kind: prev ? 'Preventiva' : label, cost: prev ? REPAIR.preventiveCost : cost, wear: Math.round(b.wear) });
+  const itFault = b.fault?.kind === 'it';
+  b.history.unshift({ day: s.day, kind: prev ? 'Preventiva' : b.fault?.text || label, cost: prev ? REPAIR.preventiveCost : cost, wear: Math.round(b.wear) });
   b.history = b.history.slice(0, 6);
-  b.broken = false; b.externalRepair = false; b.preventive = false; b.techStop = false; b.wear = 0; b.techBy = null;
+  b.broken = false; b.externalRepair = false; b.preventive = false; b.techStop = false; if (!itFault) b.wear = 0; b.fault = null; b.techBy = null;
   sim.emit('toast', { kind: 'good', text: `${BUILDINGS[b.type].name} voltou a operar.` });
 }
 export function stationPower(b) {

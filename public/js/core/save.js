@@ -8,7 +8,7 @@ export function load() {
     const raw = localStorage.getItem(GAME.saveKey);
     if (!raw) return null;
     const d = JSON.parse(raw);
-    return d && d.state && d.state.v === 1 ? d : null;
+    return d && d.state && d.state.v <= 3 ? d : null;
   } catch { return null; }
 }
 export function clearSave() { try { localStorage.removeItem(GAME.saveKey); } catch { /* armazenamento bloqueado */ } }

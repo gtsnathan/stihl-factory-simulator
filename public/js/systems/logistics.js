@@ -27,6 +27,10 @@ function moveItem(s, item, nx, ny, fromDir) {
 }
 
 function updateBelt(s, c, dt) {
+  if (c.jam) { // esteira travada segura as peças até o reparo
+    if (c.jamT > 0) { c.jamT -= dt; if (c.jamT <= 0) { c.jam = null; c.jamT = 0; } }
+    return;
+  }
   const speed = beltSpeed(s);
   if (c.kind === 'split') {
     const it = c.items[0];

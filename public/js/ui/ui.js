@@ -1,4 +1,5 @@
-import { BUILDINGS, COMPONENTS, GAME, MODELS, PHASES, RESEARCH, ROLES, STATION_STAGES } from '../config.js';
+import { BUILDINGS, COMPONENTS, DEPARTMENTS, GAME, MACHINES, MODELS, PHASES, RESEARCH, ROLES, SECTORS, STATION_STAGES } from '../config.js';
+import { buyBuilding, callBeltService, deptActive, freeLots, machineCycle, moldOutput, openTickets, sectorEfficiency, setMold } from '../systems/sectors.js';
 import { save, clearSave } from '../core/save.js';
 import { cycleTime, failureChance, preventiveMaintenance, REPAIR, requestRepair } from '../systems/machines.js';
 import { findBottleneck, phaseInfo, unitCost } from '../systems/production.js';
@@ -6,6 +7,7 @@ import { fire, hire, train, trainCost, workerProductivity } from '../systems/wor
 import { buy, depotCapacity, dockCapacity, incoming, kitFor, stockUsed } from '../systems/inventory.js';
 import { acceptOffer, declineOffer, repayLoan, sellSpot, shipOrder, spotPrice, takeLoan } from '../systems/economy.js';
 import { logisticsSummary } from '../systems/logistics.js';
+import { truckAtBay, truckQueue } from '../systems/trucks.js';
 import { beltAt } from '../core/grid.js';
 import { drawChart } from './charts.js';
 
@@ -14,11 +16,13 @@ const pct = (v) => `${Math.round(v * 100)}%`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const STATUS = {
   running: ['Produzindo', 'ok'], broken: ['Quebrada', 'bad'], blocked: ['Saída bloqueada', 'warn'],
-  starved_wip: ['Aguardando peça da linha', 'warn'], starved_mat: ['Sem componentes', 'warn'], no_operator: ['Sem operador', 'idle'],
+  starved_wip: ['Aguardando peça da linha', 'warn'], starved_mat: ['Sem material', 'warn'], no_operator: ['Sem operador', 'idle'], cold: ['Forno frio ou ausente', 'warn'], stock_full: ['Estoque da peça cheio', 'idle'], waste_full: ['Resíduos cheios', 'bad'],
 };
-const WSTATE = { idle: 'Aguardando', work: 'Na estação', rest: 'Em descanso', toDepot: 'Indo ao depósito', toStation: 'Abastecendo estação', toPallet: 'Indo ao fim de linha', toDock: 'Levando à expedição', toMachine: 'Indo à máquina' };
+const WSTATE = { idle: 'Aguardando', work: 'Na estação', rest: 'Em descanso', toDepot: 'Indo ao depósito', toStation: 'Abastecendo estação', toPallet: 'Indo ao fim de linha', toDock: 'Levando à expedição', toMachine: 'Indo ao chamado', toOutput: 'Buscando peças', toDrop: 'Levando ao depósito' };
+const TRUCK_PHASE = { approach: 'Caminhão a caminho', enter: 'Caminhão entrando', work: 'Caminhão em operação', exit: 'Caminhão saindo', leave: 'Livre' };
 const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 export const MENUS = [
+  ['complex', 'Complexo', svg('<path d="M3 21V9l6 3V9l6 3V4h6v17zM7 17h2M12 17h2M17 17h2M17 12h2M17 8h2"/>')],
   ['build', 'Construção', svg('<path d="M3 20h18M6 20V9l6-5 6 5v11M10 20v-6h4v6"/>')],
   ['prod', 'Produção', svg('<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/>')],
   ['staff', 'Funcionários', svg('<circle cx="9" cy="8" r="3.2"/><path d="M3 20c.6-4 3-6 6-6s5.4 2 6 6M16 5a3 3 0 0 1 0 6M18 14c2 .8 3 3 3.2 6"/>')],
@@ -72,6 +76,7 @@ export class UI {
   selectedBuilding() { return this.sel?.kind === 'b' ? this.sim.s.buildings.find((b) => b.id === this.sel.id) : null; }
   selectBuilding(id) { this.sel = { kind: 'b', id }; this.refresh(); }
   selectWorker(id) { this.sel = { kind: 'w', id }; this.refresh(); }
+  selectZone(id) { this.sel = { kind: 'z', id }; this.refresh(); }
   selectBelt(x, y) { this.sel = { kind: 'c', x, y }; this.refresh(); }
   clearSelection() { this.sel = null; this.refresh(); }
   togglePause() { this.setSpeed(this.sim.s.speed === 0 ? (this.prevSpeed || 1) : 0); }
@@ -91,7 +96,13 @@ export class UI {
       case 'removeMode': this.building = 'remove'; this.scene?.setBuildMode(null, 'remove'); if (window.innerWidth < 760) this.panel = null; this.toast('warn', 'Toque no que deseja remover. Metade do valor volta ao caixa.'); break;
       case 'rotate': this.scene?.rotate(); break;
       case 'cancelBuild': this.cancelBuild(); break;
-      case 'expand': this.res(sim.expandHall()); break;
+      case 'expand': this.res(sim.expandZone(v)); break;
+      case 'buySector': { const r = buyBuilding(sim, v); this.res(r); if (r.ok) { this.scene?.focusZone(r.zone); this.sel = { kind: 'z', id: r.zone.id }; if (window.innerWidth < 760) this.panel = null; } break; }
+      case 'goto': { const z = s.zones.find((q) => q.id === v); if (z) { this.scene?.focusZone(z); this.sel = { kind: 'z', id: v }; if (window.innerWidth < 760) this.panel = null; } break; }
+      case 'mold': { const b = s.buildings.find((q) => q.id === n); if (b) setMold(b); break; }
+      case 'beltExt': this.res(callBeltService(sim, v)); break;
+      case 'autoRaw': s.autoRaw = !s.autoRaw; break;
+      case 'buyRaw': this.res(buy(sim, { [v]: 40 })); break;
       case 'buyOne': { const [k, q] = v.split(':'); this.res(buy(sim, { [k]: Number(q) })); break; }
       case 'buyKit': this.res(buy(sim, kitFor(n))); break;
       case 'autoBuy': s.autoBuy = !s.autoBuy; break;
@@ -175,6 +186,7 @@ export class UI {
     if (sel?.kind === 'b') html = this.infoBuilding();
     else if (sel?.kind === 'w') html = this.infoWorker();
     else if (sel?.kind === 'c') html = this.infoBelt();
+    else if (sel?.kind === 'z') html = this.infoZone();
     el.hidden = !html;
     if (html) { const t = document.createElement('div'); t.innerHTML = html; this.syncChildren(el, t); }
   }
@@ -185,10 +197,15 @@ export class UI {
     if (!b) { this.sel = null; return ''; }
     const head = (title, sub) => `<header><div><h3>${title}</h3>${sub ? `<small>${sub}</small>` : ''}</div><button class="x" data-a="closeInfo" aria-label="Fechar">×</button></header>`;
     const def = STATION_STAGES[b.type];
+    if (MACHINES[b.type]) return this.infoMachine(b, head);
     if (!def) {
       if (b.type === 'depot') return head('Depósito', 'Componentes') + row('Ocupação', `${stockUsed(s)} de ${depotCapacity(s)}`) + `<button data-a="menu" data-v="stock">Abrir estoque</button>`;
       if (b.type === 'dock') return head('Expedição', 'Motosserras prontas') + row('Prontas para envio', `${s.finished} de ${dockCapacity(s)}`) + `<button data-a="menu" data-v="log">Abrir pedidos</button>`;
       if (b.type === 'pallet') return head('Fim de linha', 'A empilhadeira leva para a expedição') + row('No pallet', `${b.count} de ${BUILDINGS.pallet.cap}`);
+      if (BUILDINGS[b.type].front) {
+        const k = truckAtBay(s, b.id);
+        return head(BUILDINGS[b.type].name, BUILDINGS[b.type].desc) + `<div class="pill ${k ? 'warn' : 'ok'}">${k ? TRUCK_PHASE[k.phase] : 'Livre'}</div>` + row('Caminhões na fila', truckQueue(s));
+      }
       return head(BUILDINGS[b.type].name, BUILDINGS[b.type].desc);
     }
     const [lbl, cls] = STATUS[b.status] || ['—', 'idle'];
@@ -208,6 +225,38 @@ export class UI {
       + `<div class="row"><span>Desgaste</span><b class="${wearClass(b.wear)}">${Math.round(b.wear)}%</b></div>${meter(b.wear / 100, wearClass(b.wear))}`
       + row('Operador', op ? esc(op.name) : 'Nenhum')
       + repair + hist;
+  }
+  infoMachine(b, head) {
+    const s = this.sim.s, d = MACHINES[b.type], [lbl, cls] = STATUS[b.status] || ['—', 'idle'];
+    const op = s.workers.find((w) => w.id === b.operatorId);
+    if (d.desk) return head(BUILDINGS.desk.name, SECTORS[b.dept].name) + `<div class="pill ${b.status === 'running' ? 'ok' : 'warn'}">${b.status === 'running' ? 'Efeito ativo' : 'Sem analista: efeito desligado'}</div>` + `<p class="hint">${SECTORS[b.dept].desc}</p>` + row('Analista', op ? esc(op.name) : 'Nenhum');
+    const total = b.t.run + b.t.starved + b.t.blocked + b.t.broken + b.t.absent;
+    const rec = d.in ? `${Object.entries(d.in).map(([k, q]) => `${q} ${COMPONENTS[k].name}`).join(' + ')} → ${COMPONENTS[moldOutput(b)].name}` : d.desc;
+    const repair = b.broken
+      ? (b.externalRepair ? `<div class="pill warn">Serviço em andamento: ${Math.ceil(b.repairT)} s</div>` : b.techBy ? '<div class="pill warn">Técnico atendendo</div>' : `<button class="primary" data-a="repair" data-v="${b.id}">Chamar serviço externo (${money(REPAIR.externalCost)})</button>`)
+      : `<button data-a="preventive" data-v="${b.id}">Manutenção preventiva (${money(REPAIR.preventiveCost)})</button>`;
+    return head(d.name, rec) + `<div class="pill ${cls}">${b.fault ? esc(b.fault.text) : lbl}</div>`
+      + (d.heat ? row('Temperatura', `${Math.round(b.temp || 0)} °C`, (b.temp || 0) < 600 ? 'warn' : 'ok') : '')
+      + (d.cycle ? row('Tempo de ciclo', `${machineCycle(this.sim, b).toFixed(1).replace('.', ',')} s`) : '')
+      + row('Produtividade', op ? pct(workerProductivity(op)) : d.role === 'none' ? 'Automática' : '—')
+      + row('Tempo produzindo', total > 0 ? pct(b.t.run / total) : '—')
+      + (d.in ? row('Aprovadas / reprovadas', `${b.good} / ${b.bad}`) : '')
+      + (d.in ? row('Na saída', `${b.out} de ${d.outCap}`) : '')
+      + row('Horas de funcionamento', b.hours.toFixed(1).replace('.', ','))
+      + `<div class="row"><span>Desgaste</span><b class="${wearClass(b.wear)}">${Math.round(b.wear)}%</b></div>${meter(b.wear / 100, wearClass(b.wear))}`
+      + row('Operador', op ? esc(op.name) : d.role === 'none' ? 'Não precisa' : 'Nenhum')
+      + (b.type === 'injetora' ? `<button data-a="mold" data-v="${b.id}">Trocar molde (agora: ${COMPONENTS[moldOutput(b)].name})</button>` : '') + repair;
+  }
+  infoZone() {
+    const s = this.sim.s, z = s.zones.find((q) => q.id === this.sel.id);
+    if (!z) { this.sel = null; return ''; }
+    const sec = z.sector || z.id, e = sectorEfficiency(s).find((x) => x.z === z);
+    const dept = DEPARTMENTS[sec];
+    return `<header><div><h3>${esc(z.name)}</h3><small>${SECTORS[sec].desc}</small></div><button class="x" data-a="closeInfo" aria-label="Fechar">×</button></header>`
+      + (dept ? `<div class="pill ${deptActive(s, sec) ? 'ok' : 'warn'}">${deptActive(s, sec) ? 'Efeito ativo' : 'Contrate um analista em Funcionários'}</div>` : '')
+      + (e ? row('Máquinas', e.count) + row('Eficiência', pct(e.eff)) + row('Aprovadas / reprovadas', `${e.good} / ${e.bad}`) + row('Paradas agora', e.stopped, e.stopped ? 'bad' : '') : (dept ? '' : '<p class="hint">Prédio vazio. Abra Construção e instale as máquinas.</p>'))
+      + row('Tamanho', `${z.w} × ${z.h} células`) + (z.waste !== undefined ? row('Resíduos', `${Math.round(z.waste)}%`, z.waste > 75 ? 'warn' : '') : '')
+      + `<button data-a="expand" data-v="${z.id}">Ampliar (${money(GAME.expansionCost)})</button>`;
   }
   infoWorker() {
     const s = this.sim.s, w = s.workers.find((x) => x.id === this.sel.id);
@@ -231,12 +280,30 @@ export class UI {
   // ---------- Painéis ----------
   p_build() {
     const s = this.sim.s;
-    const groups = [['Logística', ['belt', 'split', 'pallet']], ['Linha de montagem', ['st1', 'st2', 'st3']], ['Estrutura', ['depot', 'dock', 'rest']]];
+    const built = new Set(s.zones.map((z) => z.sector || z.id));
+    const groups = [];
+    for (const sec of Object.keys(SECTORS)) {
+      if (!built.has(sec) || DEPARTMENTS[sec]) continue;
+      const list = Object.keys(BUILDINGS).filter((k) => BUILDINGS[k].zone === sec && !MACHINES[k]?.internal);
+      if (list.length) groups.push([SECTORS[sec].name, list]);
+    }
+    groups.push(['Qualquer lugar', ['belt', 'split', 'rest']]);
     return groups.map(([g, list]) => `<h4>${g}</h4><div class="cards">${list.map((k) => {
       const d = BUILDINGS[k];
       return `<button class="card ${this.building === k ? 'sel' : ''}" data-a="build" data-v="${k}" ${s.cash < d.cost ? 'data-poor="1"' : ''}><b>${d.name}</b><small>${d.desc}</small><em>${money(d.cost)}</em></button>`;
     }).join('')}</div>`).join('')
-      + `<h4>Galpão</h4><div class="btns"><button data-a="expand">Ampliar 4 colunas (${money(GAME.expansionCost)})</button><button class="ghost" data-a="removeMode">Remover</button></div>${row('Tamanho atual', `${s.hall.w} × ${s.hall.h} células`)}`;
+      + `<h4>Ampliar prédios (${money(GAME.expansionCost)} por 4 colunas)</h4><div class="btns">${s.zones.map((z) => `<button data-a="expand" data-v="${z.id}">${z.name} (${z.w} × ${z.h})</button>`).join('')}</div><div class="btns"><button class="ghost" data-a="removeMode">Remover</button></div><p class="hint">Novos setores aparecem aqui depois de construídos em Complexo.</p>`;
+  }
+  p_complex() {
+    const s = this.sim.s, built = new Set(s.zones.map((z) => z.sector || z.id)), lots = freeLots(s).length;
+    const card = (k) => { const d = SECTORS[k]; return `<button class="card ${built.has(k) ? 'sel' : ''}" data-a="buySector" data-v="${k}" ${s.cash < d.cost ? 'data-poor="1"' : ''}><b>${String(d.num).padStart(2, '0')} · ${d.name}</b><small>${d.desc}</small><em>${money(d.cost)}</em></button>`; };
+    const prod = ['fundicao', 'usinagem', 'cilindros', 'cromagem', 'brunimento', 'injecao', 'motores', 'embalagem', 'prod', 'almox', 'log'];
+    return `${row('Prédios', s.zones.length)}${row('Terrenos livres', lots)}
+      <h4>Seus prédios</h4><div class="line">${s.zones.map((z) => { const d = DEPARTMENTS[z.sector]; return `<button class="lineitem" data-a="goto" data-v="${z.id}"><span class="dot ${d && !deptActive(s, z.sector) ? 'warn' : 'ok'}"></span><span><b>${esc(z.name)}</b><small>Entrar no prédio</small></span></button>`; }).join('')}</div>
+      <h4>Cadeia de fabricação</h4><p class="hint">Recebimento → Fundição → Usinagem → Cilindros → Cromagem → Brunimento → Motores → Montagem final → Embalagem → Expedição. Plásticos seguem em paralelo. O que você não fabrica continua sendo comprado.</p>
+      <h4>Setores de produção</h4><div class="cards">${prod.map(card).join('')}</div>
+      <h4>Departamentos de apoio</h4><div class="cards">${Object.keys(DEPARTMENTS).map(card).join('')}</div>
+      <p class="hint">Cada departamento só tem efeito com um analista contratado. Os números dos prédios são ambientação, não um cadastro oficial.</p>`;
   }
   p_prod() {
     const s = this.sim.s, st = s.buildings.filter((b) => STATION_STAGES[b.type]), bn = findBottleneck(s), ph = phaseInfo(s), m = MODELS['MS 170'];
@@ -248,17 +315,29 @@ export class UI {
       return `<button class="lineitem" data-a="sel" data-v="${b.id}"><span class="dot ${c}"></span><span><b>${BUILDINGS[b.type].name}${bn?.id === b.id ? ' <i class="tag">gargalo</i>' : ''}</b><small>${l}</small></span><span class="num">${total > 0 ? pct(b.t.run / total) : '—'}</span></button>`;
     }).join('')}</div>
       <h4>Indicadores OEE</h4>${row('Disponibilidade', pct(s.eff.avail))}${row('Desempenho', pct(s.eff.perf))}${row('Qualidade', pct(s.eff.qual))}${row('OEE', pct(s.eff.oee))}
+      <h4>Controle de produção</h4>${this.control()}
       <h4>Totais</h4>${row('Motosserras prontas', s.stats.produced)}${row('Vendidas', s.stats.sold)}${row('Refugo', s.stats.scrapped)}${row('Retrabalho', s.stats.reworked)}
       <h4>Evolução da fábrica</h4><div class="phases">${PHASES.map((p, i) => `<div class="phase ${i === ph.index ? 'now' : i < ph.index ? 'done' : ''}"><b>${i + 1}. ${p.name}</b><small>${p.text}</small></div>`).join('')}</div>
       ${ph.goal !== Infinity ? `<p class="hint">Faltam ${ph.goal - s.stats.sold} vendas para o próximo nível. As novas tecnologias de cada nível chegam nas próximas versões.</p>` : ''}
       <h4>Próximos modelos</h4>${Object.entries(MODELS).filter(([, x]) => !x.unlocked).map(([n, x]) => row(n, `${money(x.price)} · em breve`)).join('')}`;
   }
+  control() {
+    const s = this.sim.s, ms = s.buildings.filter((b) => b.t && b.type !== 'desk');
+    const good = ms.reduce((a, b) => a + b.good, 0), bad = ms.reduce((a, b) => a + b.bad, 0);
+    const d = s.days[s.days.length - 1], base = d || s.today, costs = d ? d.expense - d.build : base.parts + base.wages + base.energy + base.maint + base.other;
+    const unit = base.produced ? costs / base.produced : 0, avg = s.stats.sold ? s.stats.revenue / s.stats.sold : 0;
+    const rows = sectorEfficiency(s).map((e) => row(esc(e.z.name.replace(/^Prédio \S+ · /, '')), pct(e.eff))).join('');
+    return row('Produção por hora', s.rateHour) + row('Produção no turno de hoje', s.today.produced) + row('Último dia fechado', d ? d.produced : '—')
+      + row('Peças aprovadas', good) + row('Peças reprovadas', bad, bad ? 'warn' : '') + row('Máquinas paradas', ms.filter((b) => b.broken).length, ms.some((b) => b.broken) ? 'bad' : '')
+      + row('Custo por motosserra', unit ? money(unit) : '—') + row('Lucro por motosserra', unit && avg ? money(avg - unit) : '—')
+      + `<h4>Eficiência por setor</h4>${rows}`;
+  }
   p_staff() {
     const s = this.sim.s;
-    const hireBtns = Object.entries(ROLES).map(([k, r]) => `<button class="card" data-a="hire" data-v="${k}"><b>${r.name}</b><small>${money(r.salary)} por dia</small><em>Contratar por ${money(r.hireCost)}</em></button>`).join('');
+    const hireBtns = Object.entries(ROLES).map(([k, r]) => `<button class="card" data-a="hire" data-v="${k}"><b>${r.name}</b><small>${money(r.salary)} por dia</small><em>Contratar por ${money(r.hireCost * this.sim.fx.hire)}</em></button>`).join('');
     return `<h4>Equipe (${s.workers.length})</h4><div class="people">${s.workers.map((w) => `<details class="person"><summary><span class="dot ${w.state === 'rest' ? 'warn' : 'ok'}"></span><span><b>${esc(w.name)}</b><small>${ROLES[w.role].name} · ${WSTATE[w.state] || w.state}</small></span><span class="num">${pct(w.fatigue)}</span></summary>${this.workerStats(w)}</details>`).join('')}</div>
       <h4>Contratar</h4><div class="cards">${hireBtns}</div>
-      <p class="hint">Fadiga: o funcionário rende menos conforme cansa e vai à área de descanso ao chegar em 92%. Toda estação precisa de um montador. Técnicos consertam as máquinas sozinhos.</p>`;
+      <p class="hint">Fadiga: o funcionário rende menos conforme cansa e vai à área de descanso ao chegar em 92%. Cada máquina precisa de um operador e cada departamento, de um analista. Técnicos atendem os chamados sozinhos.</p>`;
   }
   p_stock() {
     const s = this.sim.s, used = stockUsed(s), cap = depotCapacity(s);
@@ -266,8 +345,11 @@ export class UI {
       ${incoming(s) ? row('A caminho', `${incoming(s)} unidades`) : ''}
       <h4>Comprar kits completos</h4><div class="btns"><button class="primary" data-a="buyKit" data-v="10">10 motosserras (${money(unitCost() * 10 + GAME.freightIn)})</button><button data-a="buyKit" data-v="25">25 (${money(unitCost() * 25 + GAME.freightIn)})</button></div>
       <label class="toggle"><button role="switch" aria-checked="${s.autoBuy}" data-a="autoBuy"></button><span>Comprar automaticamente 25 kits quando algo estiver acabando</span></label>
-      <h4>Componentes</h4><div class="stock">${Object.entries(COMPONENTS).map(([k, c]) => `<div class="stockrow"><i style="background:${c.color}"></i><span><b>${c.name}</b><small>${money(c.price)} cada</small></span><span class="num ${s.stock[k] < 6 ? 'warnv' : ''}">${s.stock[k]}</span><button data-a="buyOne" data-v="${k}:10">+10</button></div>`).join('')}</div>
-      <p class="hint">Cada compra paga ${money(GAME.freightIn)} de frete e chega em ${GAME.deliverySeconds} s de caminhão.</p>`;
+      <h4>Componentes</h4><div class="stock">${Object.entries(COMPONENTS).filter(([, c]) => !c.raw && !c.made).map(([k, c]) => `<div class="stockrow"><i style="background:${c.color}"></i><span><b>${c.name}</b><small>${money(c.price)} cada</small></span><span class="num ${s.stock[k] < 6 ? 'warnv' : ''}">${s.stock[k]}</span><button data-a="buyOne" data-v="${k}:10">+10</button></div>`).join('')}</div>
+      <h4>Matérias-primas</h4><div class="stock">${Object.entries(COMPONENTS).filter(([, c]) => c.raw).map(([k, c]) => `<div class="stockrow"><i style="background:${c.color}"></i><span><b>${c.name}</b><small>${money(c.price * this.sim.fx.price)} cada</small></span><span class="num">${s.stock[k] || 0}</span><button data-a="buyRaw" data-v="${k}">+40</button></div>`).join('')}</div>
+      ${this.sim.fx.pcp ? `<label class="toggle"><button role="switch" aria-checked="${!!s.autoRaw}" data-a="autoRaw"></button><span>PCP: repor matéria-prima automaticamente</span></label>` : '<p class="hint">O departamento de PCP libera a reposição automática de matéria-prima.</p>'}
+      <h4>Peças em processo</h4><div class="stock">${Object.entries(COMPONENTS).filter(([, c]) => c.made).map(([k, c]) => `<div class="stockrow"><i style="background:${c.color}"></i><span><b>${c.name}</b></span><span class="num">${s.stock[k] || 0}</span></div>`).join('')}</div>
+      <p class="hint">Cada compra paga ${money(GAME.freightIn)} de frete e entra pela doca de recebimento. Se a doca estiver ocupada, o caminhão espera na fila.</p>`;
   }
   p_log() {
     const s = this.sim.s, L = logisticsSummary(s);
@@ -278,17 +360,20 @@ export class UI {
       <label class="toggle"><button role="switch" aria-checked="${s.autoShip}" data-a="autoShip"></button><span>Enviar pedidos automaticamente quando estiverem prontos</span></label>
       <h4>Novas propostas (${s.offers.length})</h4>${s.offers.map(offer).join('') || '<p class="hint">Novas propostas chegam a cada minuto.</p>'}
       <h4>Venda no mercado</h4>${row('Preço atual', money(spotPrice(s)))}<div class="btns"><button data-a="spot" data-v="5">Vender 5</button><button data-a="spot" data-v="20">Vender 20</button></div><p class="hint">Cada unidade vendida reduz o preço do mercado, que se recupera com o tempo.</p>
+      <h4>Docas</h4>${s.buildings.filter((b) => BUILDINGS[b.type].front).map((b) => { const k = truckAtBay(s, b.id); return row(BUILDINGS[b.type].name, k ? TRUCK_PHASE[k.phase] : 'Livre', k ? 'warn' : 'ok'); }).join('')}${row('Caminhões na fila', truckQueue(s), truckQueue(s) ? 'warn' : '')}
       <h4>Em transporte (${s.shipments.length})</h4>${s.shipments.map((x) => row(`${esc(x.label)}: ${x.qty} un.`, money(x.value))).join('') || '<p class="hint">Nenhuma carga na estrada.</p>'}
       <h4>Esteiras</h4>${row('Células', L.cells)}${row('Peças em circulação', L.items)}${row('Filas paradas', L.stuck, L.stuck > 3 ? 'warn' : '')}${row('Reputação', `${Math.round(s.reputation)}/100`)}`;
   }
   p_maint() {
-    const s = this.sim.s, st = s.buildings.filter((b) => STATION_STAGES[b.type]);
-    return st.map((b) => {
+    const s = this.sim.s, st = s.buildings.filter((b) => b.t && b.type !== 'desk');
+    const tk = openTickets(s);
+    const ticket = (x) => `<div class="order"><div><b>${esc(x.text)}</b><i class="tag ${x.kind === 'it' ? 'blue' : ''}">${x.kind === 'it' ? 'TI' : 'manutenção'}</i><small>${esc(x.place)} · aberto há ${Math.round(x.age)} s</small></div>${x.ext ? `<div class="pill warn">Serviço externo: ${Math.ceil(x.repairT)} s</div>` : x.tech ? '<div class="pill warn">Técnico atendendo</div>' : `<div class="btns"><button class="primary" data-a="${x.type === 'b' ? 'repair' : 'beltExt'}" data-v="${x.id}">Chamar serviço externo (${money(x.type === 'b' ? REPAIR.externalCost : 600)})</button></div>`}</div>`;
+    return `<h4>Chamados abertos (${tk.length})</h4>${tk.map(ticket).join('') || '<p class="hint">Nenhum chamado aberto.</p>'}<h4>Equipamentos</h4>` + st.map((b) => {
       const hist = b.history.slice(0, 3).map((h) => row(`Dia ${h.day} · ${h.kind}`, money(h.cost))).join('');
       return `<div class="machine"><div class="row"><b>${BUILDINGS[b.type].name}</b><b class="${wearClass(b.wear)}">${b.broken ? 'Parada' : `${Math.round(b.wear)}%`}</b></div>${meter(b.wear / 100, wearClass(b.wear))}
         ${row('Horas de funcionamento', b.hours.toFixed(1).replace('.', ','))}${row('Chance de falha por hora', pct(failureChance(b)))}${hist}
         ${b.broken ? (b.externalRepair ? `<div class="pill warn">Serviço: ${Math.ceil(b.repairT)} s</div>` : b.techBy ? '<div class="pill warn">Técnico a caminho</div>' : `<button class="primary" data-a="repair" data-v="${b.id}">Chamar reparo (${money(REPAIR.externalCost)})</button>`) : `<button data-a="preventive" data-v="${b.id}">Preventiva (${money(REPAIR.preventiveCost)})</button>`}</div>`;
-    }).join('') + '<p class="hint">Uma máquina quebrada para a estação até o reparo. Um técnico contratado conserta sem custo de terceiros e faz preventiva quando o desgaste passa de 75%.</p>';
+    }).join('') + '<p class="hint">Uma máquina quebrada para a estação até o reparo. Técnicos de manutenção e de TI vão até o local, diagnosticam e reparam. O técnico de TI exige o prédio de TI.</p>';
   }
   p_res() {
     const r = this.sim.s.research;

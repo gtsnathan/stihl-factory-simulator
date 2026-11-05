@@ -5,10 +5,10 @@ export function finishUnit(sim, b, op) {
   const s = sim.s, def = STATION_STAGES[b.type];
   if (def.inspects) {
     const skill = 1 + op.train * .15 + Math.min(.3, op.xp / 3600);
-    const chance = .05 * (1 + b.wear / 100) / skill * (s.research.done.pokayoke ? .5 : 1);
+    const chance = .05 * (1 + b.wear / 100) / skill * (s.research.done.pokayoke ? .5 : 1) * sim.fx.defect;
     if (rng(s) < chance) {
       b.bad++;
-      if (rng(s) < .6) {
+      if (rng(s) < sim.fx.rework) {
         s.stats.reworked++;
         b.busy = true; b.progress = 0; // retrabalho: refaz o ciclo sem gastar novos componentes
         sim.emit('toast', { kind: 'warn', text: 'Defeito na inspeção: unidade em retrabalho.' });
@@ -34,7 +34,7 @@ export function unitCost() {
 
 // OEE = disponibilidade × desempenho × qualidade, a partir do tempo de cada estação.
 export function computeEfficiency(s) {
-  const st = s.buildings.filter((b) => STATION_STAGES[b.type]);
+  const st = s.buildings.filter((b) => b.t && b.type !== 'desk');
   if (!st.length) return { oee: 0, avail: 0, perf: 0, qual: 1 };
   let total = 0, broken = 0, run = 0, good = 0, bad = 0;
   for (const b of st) {

@@ -1,7 +1,8 @@
 /* global Phaser */
 import { BUILDINGS, DIRS, GAME, NEXT_DIR, STATION_STAGES } from '../config.js';
-import { buildingAt, beltAt } from '../core/grid.js';
-import { buildAllTextures, buildFloorTexture, buildWallTextures } from './textures.js';
+import { buildingAt, beltAt, placementError, zoneAt } from '../core/grid.js';
+import { truckAtBay } from '../systems/trucks.js';
+import { buildAllTextures, buildZoneFloor } from './textures.js';
 
 const TW = 32, TH = 16;
 export const iso = (x, y) => ({ x: (x - y) * TW, y: (x + y) * TH });
@@ -17,7 +18,7 @@ export class FactoryScene extends Phaser.Scene {
     this.maps = { b: new Map(), belt: new Map(), item: new Map(), w: new Map() };
     this.layout = { type: null, dir: 'E', mode: null };
     this.anim = 0; this.frame = 0;
-    this.trucks = [];
+    this.truckImgs = new Map();
     this.buildHall();
 
     this.input.addPointer(2);
@@ -30,48 +31,68 @@ export class FactoryScene extends Phaser.Scene {
 
     this.sparks = this.add.particles(0, 0, 'spark', { speed: { min: 20, max: 60 }, gravityY: 120, lifespan: 380, scale: { start: 1, end: 0 }, emitting: false, angle: { min: 200, max: 340 } }).setDepth(DEPTH.ghost - 5);
 
-    this.sim.on('truck', (e) => this.spawnTruck(e.kind));
     this.sim.on('hall', () => this.buildHall());
     this.sim.on('breakdown', (e) => { const r = this.maps.b.get(e.id); if (r) this.sparks.explode(26, r.img.x + 60, r.img.y + 50); this.cameras.main.shake(180, .003); });
 
     this.scale.on('resize', () => this.clampCam());
     const cam = this.cameras.main, narrow = this.scale.width < 700;
-    const centre = iso(10, 6);
-    cam.setZoom(narrow ? .72 : 1.15); cam.centerOn(centre.x, centre.y + 10);
+    const centre = iso(13, 26);
+    cam.setZoom(narrow ? .42 : .92); cam.centerOn(centre.x, centre.y + 10);
     this.ui.bindScene(this);
     this.game.events.emit('factory-ready');
     window.__scene = this;
   }
 
   buildHall() {
-    const { w: W, h: H } = this.sim.s.hall;
-    for (const k of ['floorImg', 'wa', 'wb', 'fa', 'fb', 'yard']) this[k]?.destroy();
+    const { w: W, h: H } = this.sim.s.hall, zones = this.sim.s.zones;
+    for (const k of ['yard', 'apron']) this[k]?.destroy();
+    (this.floors || []).forEach((l) => l.destroy());
     (this.lamps || []).forEach((l) => l.destroy());
-    buildFloorTexture(this, W, H); buildWallTextures(this, W, H);
-    const pad = 2;
-    this.floorImg = this.add.image(-(H + pad) * TW, -(pad * 2) * TH, 'floor').setOrigin(0).setDepth(DEPTH.floor);
-    this.wa = this.add.image(-2, -118 - 2, 'wallA').setOrigin(0).setDepth(DEPTH.wallBack).setAlpha(.78);
-    this.wb = this.add.image(-H * TW - 2, -118 - 2, 'wallB').setOrigin(0).setDepth(DEPTH.wallBack).setAlpha(.78);
-    // Paredes frontais baixas e translúcidas
-    const front1 = iso(0, H), front2 = iso(W, 0);
-    this.fa = this.add.image(front1.x - 2, front1.y - 20, 'wallFrontA').setOrigin(0).setDepth(objDepth(W, H)).setAlpha(.5);
-    this.fb = this.add.image(front2.x - H * TW - 2, front2.y - 20, 'wallFrontB').setOrigin(0).setDepth(objDepth(W, H)).setAlpha(.5);
+    (this.walls || []).forEach((l) => l.destroy());
+    const bays = this.sim.s.buildings.filter((b) => BUILDINGS[b.type].front);
+    this.floors = zones.map((z) => {
+      buildZoneFloor(this, z);
+      const p = iso(z.x, z.y);
+      return this.add.image(p.x - z.h * TW, p.y, `floor_${z.id}`).setOrigin(0).setDepth(DEPTH.floor);
+    });
     this.yard = this.add.graphics().setDepth(DEPTH.yard);
     const q = (a0, a1, b0, b1, c) => {
       const p = [iso(a0, b0), iso(a1, b0), iso(a1, b1), iso(a0, b1)];
       this.yard.fillStyle(c, 1); this.yard.fillPoints(p, true);
     };
     q(-30, W + 40, -30, H + 30, 0x28352a);
+    q(-2, W + 2, -2, H + 2, 0x4b504f);             // pátio do complexo
     q(-12, W + 30, H + 2, H + 7, 0x2b2e33);        // pista dos caminhões
     for (let a = -12; a < W + 30; a += 3) q(a, a + 1.5, H + 4.4, H + 4.6, 0xd9dcdf);
     q(1, W, H + 2, H + 2.1, 0xe6b422);
+    // Acesso asfaltado entre a pista e cada doca
+    this.apron = this.add.graphics().setDepth(DEPTH.floor + 1);
+    this.apron.fillStyle(0x2f3237, 1);
+    for (const b of bays) this.apron.fillPoints([iso(b.x, H), iso(b.x + 2, H), iso(b.x + 2, H + 2), iso(b.x, H + 2)], true);
 
-    this.lamps = [];
-    for (let a = 3; a < W; a += 6) for (let b = 3; b < H; b += 5) {
-      const p = iso(a, b);
-      const glow = this.add.image(p.x, p.y + TH, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.lamps).setScale(2.1, 1.05).setAlpha(.16);
-      this.lamps.push(glow);
-      glow.flick = (a * 7 + b * 3) % 11;
+    this.walls = []; this.lamps = [];
+    const seg = (key, a, b, h, tall) => {
+      const p = iso(a, b), isA = key === 'A';
+      const img = this.add.image(p.x + (isA ? -2 : -34), p.y - h - 2, `wall${key}_${h}`).setOrigin(0).setDepth(objDepth(a + (isA ? .5 : 0), b + (isA ? 0 : .5)) - 1).setAlpha(tall ? .82 : .62);
+      this.walls.push(img);
+    };
+    for (const z of zones) {
+      const open = (a, b) => z.doors.some((d) => d.x === a && d.y === b);
+      const bayAt = (a) => bays.some((b) => a >= b.x && a < b.x + b.w && b.y + b.h === z.y + z.h);
+      for (let a = z.x; a < z.x + z.w; a++) {
+        if (!open(a, z.y)) seg('A', a, z.y, z.wall, z.wall > 100);
+        if (!open(a, z.y + z.h - 1) && !bayAt(a)) seg('A', a, z.y + z.h, 18);
+      }
+      for (let b = z.y; b < z.y + z.h; b++) { seg('B', z.x, b, z.wall, z.wall > 100); seg('B', z.x + z.w, b, 18); }
+      for (let a = z.x + 3; a < z.x + z.w; a += 6) for (let b = z.y + 2; b < z.y + z.h; b += 4) {
+        const p = iso(a, b);
+        const glow = this.add.image(p.x, p.y + TH, 'glow').setBlendMode(Phaser.BlendModes.ADD).setDepth(DEPTH.lamps).setScale(2.1, 1.05).setAlpha(.16);
+        glow.flick = (a * 7 + b * 3) % 11;
+        this.lamps.push(glow);
+      }
+      const c = iso(z.x + z.w / 2, z.y);
+      const sign = this.add.text(c.x, c.y - z.wall - 16, z.name.toUpperCase(), { fontFamily: '"Barlow Condensed", "Arial Narrow", sans-serif', fontSize: '19px', fontStyle: 'bold', color: '#14181a', backgroundColor: '#f28a3c', padding: { x: 8, y: 2 } }).setOrigin(.5).setDepth(DEPTH.lamps + 2).setResolution(2);
+      this.walls.push(sign);
     }
     this.clampCam();
   }
@@ -144,6 +165,12 @@ export class FactoryScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-SPACE', () => this.ui.togglePause());
   }
 
+  focusZone(z) { // aproxima a câmera do interior do prédio
+    const c = iso(z.x + z.w / 2, z.y + z.h / 2), cam = this.cameras.main;
+    cam.pan(c.x, c.y, 500, 'Sine.easeInOut');
+    cam.zoomTo(Math.max(cam.zoom, this.scale.width < 700 ? .9 : 1.3), 500);
+  }
+
   // ------- Construção --------
   setBuildMode(type, mode) {
     this.layout.type = type; this.layout.mode = mode;
@@ -159,17 +186,14 @@ export class FactoryScene extends Phaser.Scene {
     if (type === 'pallet') return 'pallet_3';
     return `${type}_0`;
   }
-  updateGhost(t) {
-    const type = this.layout.type;
+  snap(t, type) { const d = type && BUILDINGS[type]; return d && d.front ? { ...t, y: this.sim.s.hall.h - d.h } : t; }
+  updateGhost(t0) {
+    const type = this.layout.type, t = this.snap(t0, type);
     if (!type) { this.ghost.setVisible(false); return; }
     const d = BUILDINGS[type];
-    const free = !buildingAt(this.sim.s, t.x, t.y);
-    let ok = true;
-    for (let j = t.y; j < t.y + d.h; j++) for (let i = t.x; i < t.x + d.w; i++) {
-      if (i < 0 || j < 0 || i >= this.sim.s.hall.w || j >= this.sim.s.hall.h || buildingAt(this.sim.s, i, j) || beltAt(this.sim.s, i, j)) ok = false;
-    }
+    const ok = !placementError(this.sim.s, type, t.x, t.y);
     const key = this.ghostKey(type), tex = this.textures.get(key).getSourceImage(), p = iso(t.x, t.y);
-    this.ghost.setTexture(key).setVisible(free || !ok);
+    this.ghost.setTexture(key).setVisible(true);
     const belt = type === 'belt' || type === 'split';
     this.ghost.setPosition(belt ? p.x - 32 : p.x - d.h * TW, belt ? p.y - 12 : p.y - (tex.height - (d.w + d.h) * TH));
     this.ghost.setTint(ok ? 0x9dffb0 : 0xff7a7a);
@@ -201,7 +225,8 @@ export class FactoryScene extends Phaser.Scene {
     const t = this.worldTile(p.x, p.y), L = this.layout;
     if (L.mode === 'remove') { const r = this.sim.remove(t.x, t.y); if (!r.ok || r.msg) this.ui.toast(r.ok ? 'good' : 'bad', r.msg); return; }
     if (L.type) {
-      const r = this.sim.build(L.type, t.x, t.y, L.dir);
+      const c = this.snap(t, L.type);
+      const r = this.sim.build(L.type, c.x, c.y, L.dir);
       if (!r.ok) this.ui.toast('bad', r.msg); else this.ui.toast('good', `${BUILDINGS[L.type].name} construído.`);
       return;
     }
@@ -210,27 +235,22 @@ export class FactoryScene extends Phaser.Scene {
     if (hit) { this.ui.selectWorker(hit.id); return; }
     const belt = beltAt(this.sim.s, t.x, t.y);
     const b = buildingAt(this.sim.s, t.x, t.y);
-    if (b) this.ui.selectBuilding(b.id); else if (belt) this.ui.selectBelt(belt.x, belt.y); else this.ui.clearSelection();
+    if (b) this.ui.selectBuilding(b.id); else if (belt) this.ui.selectBelt(belt.x, belt.y);
+    else { const z = zoneAt(this.sim.s, t.x, t.y); if (z) this.ui.selectZone(z.id); else this.ui.clearSelection(); }
   }
 
-  // ------- Caminhões --------
-  spawnTruck(kind) {
-    const H = this.sim.s.hall.h, W = this.sim.s.hall.w, y = H + 3.2;
-    const stop = kind === 'in' ? 2.5 : 15.5;
-    const img = this.add.image(0, 0, 'truck').setOrigin(160 / 330, 110 / 190);
-    this.trucks.push({ img, x: W + 24, y, stop, t: 0, phase: 'in', wait: 4 });
-  }
-  updateTrucks(dt) {
-    for (const k of this.trucks) {
-      if (k.phase === 'in') {
-        k.x -= Math.max(1.5, Math.min(11, (k.x - k.stop) * .8)) * dt;
-        if (k.x <= k.stop + .02) { k.x = k.stop; k.phase = 'wait'; }
-      } else if (k.phase === 'wait') { k.wait -= dt; if (k.wait <= 0) k.phase = 'out'; } else {
-        k.x += 8 * dt; if (k.x > this.sim.s.hall.w + 28) { k.img.destroy(); k.dead = true; }
-      }
-      if (!k.dead) { const p = iso(k.x, k.y); k.img.setPosition(p.x, p.y).setDepth(objDepth(k.x + 2, k.y + .5)); }
+  // ------- Caminhões: posição vem da simulação --------
+  syncTrucks() {
+    const seen = new Set();
+    for (const k of this.sim.s.trucks) {
+      seen.add(k.id);
+      let img = this.truckImgs.get(k.id);
+      if (!img) { img = this.add.image(0, 0, `truck_${k.dir}`).setOrigin(170 / 340, 125 / 240); this.truckImgs.set(k.id, img); }
+      if (img.texture.key !== `truck_${k.dir}`) img.setTexture(`truck_${k.dir}`);
+      const p = iso(k.x, k.y);
+      img.setPosition(p.x, p.y).setDepth(k.dir === 'N' ? objDepth(k.x + .5, k.y + 2.2) : objDepth(k.x + 2.2, k.y + .5));
     }
-    this.trucks = this.trucks.filter((k) => !k.dead);
+    for (const [id, img] of this.truckImgs) if (!seen.has(id)) { img.destroy(); this.truckImgs.delete(id); }
   }
 
   // ------- Sincronização com a simulação --------
@@ -254,13 +274,13 @@ export class FactoryScene extends Phaser.Scene {
     this.syncBelts(fr);
     this.syncWorkers(dt);
     this.syncItems();
-    this.updateTrucks(dt * Math.max(1, this.sim.s.speed));
+    this.syncTrucks();
     this.drawSelection();
     (this.lamps || []).forEach((l) => { if (l.flick !== undefined) l.setAlpha(.15 + Math.sin(this.frame * 2 + l.flick) * .012); });
   }
 
   buildingKey(b, fr) {
-    if (STATION_STAGES[b.type]) return `${b.type}_${b.status === 'running' ? fr : 0}`;
+    if (b.t) return `${b.type}_${b.status === 'running' ? fr : 0}`;
     const s = this.sim.s;
     if (b.type === 'depot') { const cap = BUILDINGS.depot.cap, u = Object.values(s.stock).reduce((a, c) => a + c, 0); return `depot_${Math.min(4, Math.ceil(u / cap * 4))}`; }
     if (b.type === 'dock') return `dock_${Math.min(4, Math.ceil(s.finished / BUILDINGS.dock.cap * 8))}`;
@@ -275,9 +295,10 @@ export class FactoryScene extends Phaser.Scene {
       const key = this.buildingKey(b, fr);
       if (!r) {
         const tex = this.textures.get(key).getSourceImage(), p = iso(b.x, b.y);
-        const img = this.add.image(p.x - b.h * TW, p.y - (tex.height - (b.w + b.h) * TH), key).setOrigin(0).setDepth(objDepth(b.x + b.w / 2, b.y + b.h / 2));
+        const img = this.add.image(p.x - b.h * TW, p.y - (tex.height - (b.w + b.h) * TH), key).setOrigin(0).setDepth(BUILDINGS[b.type].front ? DEPTH.belt - 10 : objDepth(b.x + b.w / 2, b.y + b.h / 2));
         r = { img, key };
-        if (STATION_STAGES[b.type]) {
+        if (BUILDINGS[b.type].front) { const q = iso(b.x + 1, b.y + .1); r.bayLamp = this.add.image(q.x, q.y - 40, 'pixel').setDepth(DEPTH.belt - 9).setScale(4); }
+        if (b.t) {
           const c = iso(b.x + b.w / 2, b.y + b.h / 2);
           r.lamp = this.add.image(c.x + 18, c.y - 62, 'pixel').setDepth(img.depth + 3).setScale(3.5);
           r.alert = this.add.image(c.x, c.y - 78, 'alert').setDepth(img.depth + 4).setVisible(false);
@@ -288,21 +309,22 @@ export class FactoryScene extends Phaser.Scene {
         this.maps.b.set(b.id, r);
       }
       if (r.key !== key) { r.img.setTexture(key); r.key = key; }
+      if (r.bayLamp) r.bayLamp.setTint(truckAtBay(s, b.id) ? 0xe24b4b : 0x56e07d);
       if (r.lamp) {
-        const col = { running: 0x56e07d, broken: 0xe24b4b, blocked: 0xf0b13a, starved_wip: 0xf0b13a, starved_mat: 0xf0b13a, no_operator: 0x8a939c }[b.status];
+        const col = { running: 0x56e07d, broken: 0xe24b4b, blocked: 0xf0b13a, starved_wip: 0xf0b13a, starved_mat: 0xf0b13a, no_operator: 0x8a939c, cold: 0x6ec6ff, stock_full: 0x8a939c, waste_full: 0xf0b13a }[b.status];
         r.lamp.setTint(col);
         r.alert.setVisible(b.broken && Math.floor(this.frame * 3) % 2 === 0);
-        const stage = STATION_STAGES[b.type].stage;
-        r.wip.setVisible(b.busy && b.status === 'running' && stage !== 3).setTexture(`item_${Math.max(1, stage - (b.progress > .5 ? 0 : 1) || 1)}`);
+        const stage = STATION_STAGES[b.type]?.stage;
+        if (stage) r.wip.setVisible(b.busy && b.status === 'running' && stage !== 3).setTexture(`item_${Math.max(1, stage - (b.progress > .5 ? 0 : 1) || 1)}`);
         r.bar.clear();
         if (b.busy) {
           r.bar.fillStyle(0x111418, .85); r.bar.fillRect(r.c.x - 20, r.c.y - 70, 40, 4);
           r.bar.fillStyle(0xf28a3c, 1); r.bar.fillRect(r.c.x - 19, r.c.y - 69, 38 * b.progress, 2);
         }
-        if (b.status === 'running' && Math.random() < .02 * s.speed) this.sparks.explode(2, r.c.x - 6, r.c.y - 26);
+        if (b.status === 'running' && b.type !== 'desk' && Math.random() < .02 * s.speed) this.sparks.explode(2, r.c.x - 6, r.c.y - 26);
       }
     }
-    for (const [id, r] of this.maps.b) if (!seen.has(id)) { r.img.destroy(); r.lamp?.destroy(); r.alert?.destroy(); r.wip?.destroy(); r.bar?.destroy(); this.maps.b.delete(id); }
+    for (const [id, r] of this.maps.b) if (!seen.has(id)) { r.img.destroy(); r.lamp?.destroy(); r.alert?.destroy(); r.wip?.destroy(); r.bar?.destroy(); r.bayLamp?.destroy(); this.maps.b.delete(id); }
   }
   syncBelts(fr) {
     const s = this.sim.s, seen = new Set();
@@ -310,12 +332,13 @@ export class FactoryScene extends Phaser.Scene {
     for (const k in s.belts) {
       const c = s.belts[k]; seen.add(k);
       let r = this.maps.belt.get(k);
-      const key = c.kind === 'split' ? `split_${fr}` : `belt_${c.dir}_${beltFrame}`;
+      const key = c.kind === 'split' ? `split_${c.jam ? 0 : fr}` : `belt_${c.dir}_${c.jam ? 0 : beltFrame}`;
       if (!r) {
         const p = iso(c.x, c.y);
         r = this.add.image(p.x - 32, p.y - 12, key).setOrigin(0).setDepth(DEPTH.belt + c.x + c.y);
         this.maps.belt.set(k, r);
       } else if (r.texture.key !== key) r.setTexture(key);
+      if (r.isTinted !== !!c.jam) { if (c.jam) r.setTint(0xff7a7a); else r.clearTint(); }
     }
     for (const [k, r] of this.maps.belt) if (!seen.has(k)) { r.destroy(); this.maps.belt.delete(k); }
   }
