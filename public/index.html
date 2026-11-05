@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#14181a">
+<meta name="mobile-web-app-capable" content="yes">
+<title>STIHL Factory Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="start" class="start">
+  <div class="start-card">
+    <p class="eyebrow">Projeto de fã · versão 0.1</p>
+    <h1>STIHL<br>Factory<br>Simulator</h1>
+    <p class="lead">Você tem R$ 500.000 fictícios, cinco funcionários e uma linha de três estações. Monte a MS 170, cumpra pedidos e faça a oficina crescer.</p>
+    <div class="start-actions">
+      <button id="btn-continue" class="primary" hidden>Continuar<small></small></button>
+      <button id="btn-new">Novo jogo</button>
+    </div>
+    <p class="legal">Projeto não oficial, sem vínculo com a STIHL ou endosso da marca. Modelos usados como referência de produto. Todos os valores são fictícios.</p>
+  </div>
+</div>
+<div id="game">
+  <div id="stage"></div>
+  <div class="vignette"></div>
+  <header id="hud"></header>
+  <nav id="rail" aria-label="Menus"></nav>
+  <section id="panel" hidden>
+    <header><h2 id="panel-title"></h2><button class="x" data-a="close" aria-label="Fechar">×</button></header>
+    <div id="panel-body"></div>
+  </section>
+  <aside id="info" hidden></aside>
+  <div id="buildbar" hidden></div>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="speed" role="group" aria-label="Velocidade">
+    <button data-a="speed" data-v="0" aria-label="Pausar">❚❚</button>
+    <button data-a="speed" data-v="1" aria-label="Velocidade normal">1×</button>
+    <button data-a="speed" data-v="2" aria-label="Velocidade dupla">2×</button>
+    <button data-a="speed" data-v="4" aria-label="Velocidade quádrupla">4×</button>
+    <span class="sep"></span>
+    <button data-a="zoom" data-v="0.8" aria-label="Afastar">−</button>
+    <button data-a="zoom" data-v="1.25" aria-label="Aproximar">+</button>
+  </div>
+</div>
+<script src="lib/phaser.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
